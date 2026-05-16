@@ -12,6 +12,7 @@ from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
 from easm.api.deps import set_config, set_scheduler, set_store
+from easm.api.routes.health import check_binaries
 from easm.backfill import backfill_worker
 from easm.config import load_config
 from easm.db import close_pool, create_pool
@@ -72,6 +73,13 @@ async def main() -> None:
 
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
+
+    binaries = check_binaries()
+    for name, info in binaries.items():
+        if info["ok"]:
+            logger.info("binary found", extra={"name": name, "path": info["path"], "version": info.get("version")})
+        else:
+            logger.warning("binary not found", extra={"name": name, "error": info.get("error")})
 
     scheduler = Scheduler()
     for name, cls in RUNNER_REGISTRY.items():

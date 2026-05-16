@@ -1,30 +1,61 @@
 from __future__ import annotations
 
+import logging
+import shutil
+import subprocess
+
 from fastapi import APIRouter
 
-from easm.api.deps import get_scheduler, get_store
-from easm.api.schemas import HealthResponse
-
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
 
-@router.get("/healthz", response_model=HealthResponse)
-async def healthz() -> HealthResponse:
-    store = get_store()
-    scheduler = get_scheduler()
+def check_binaries() -> dict:
+    results = {}
+    for binary in ["subfinder", "asnmap", "dnstwist"]:
+        path = shutil.which(binary)
+        if path:
+            try:
+                version = subprocess.run(
+                    [binary, "--version"], capture_output=True, text=True, timeout=5
+                )
+                version_str = version.stdout.strip() or version.stderr.strip() or None
+            except Exception:
+                version_str = None
+            results[binary] = {"path": path, "version": version_str, "ok": True}
+        else:
+            results[binary] = {"path": None, "version": None, "ok": False, "error": "not found on PATH"}
+    return results
 
+
+@router.get("/healthz")
+async def healthz():
+    from easm.api.deps import get_store, get_scheduler
+
+    store = None
+    scheduler = None
     try:
-        async with store.pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
-        db_status = "ok"
-    except Exception:
-        db_status = "error"
+        store = get_store()
+        scheduler = get_scheduler()
+    except RuntimeError:
+        pass
 
-    scheduler_status = "running" if scheduler.running else "stopped"
-    overall = "ok" if db_status == "ok" else "degraded"
-    return HealthResponse(
-        status=overall,
-        database=db_status,
-        scheduler=scheduler_status,
-        config_loaded=True,
-    )
+    db_ok = False
+    if store:
+        try:
+            await store.pool.fetchval("SELECT 1")
+            db_ok = True
+        except Exception:
+            db_ok = False
+
+    sched_ok = scheduler.running if scheduler and hasattr(scheduler, "running") else False
+    binaries = check_binaries()
+    all_ok = db_ok and sched_ok and all(b["ok"] for b in binaries.values())
+
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "database": "connected" if db_ok else "disconnected",
+        "scheduler": "running" if sched_ok else "stopped",
+        "config_loaded": True,
+        "binaries": binaries,
+    }
