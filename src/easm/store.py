@@ -28,13 +28,15 @@ class Store:
         source: str,
         trigger_type: str,
         scheduled_for: datetime | None = None,
+        org_id: str = "default",
     ) -> uuid.UUID:
         row = await self.pool.fetchrow(
             """
-            INSERT INTO runs (target_id, source, trigger_type, status, scheduled_for)
-            VALUES ($1, $2, $3, 'pending', $4)
+            INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for)
+            VALUES ($1, $2, $3, $4, 'pending', $5)
             RETURNING id
             """,
+            org_id,
             target_id,
             source,
             trigger_type,

@@ -56,7 +56,7 @@ class BaseRunner(ABC):
         ...
 
     async def execute(self, target: Any, trigger_type: str) -> uuid.UUID:
-        run_id = await self.store.create_run(target.id, self.source_name, trigger_type)
+        run_id = await self.store.create_run(target.id, self.source_name, trigger_type, org_id=target.org_id)
         start = datetime.now(UTC)
         await self.store.mark_run_started(run_id, start)
 
