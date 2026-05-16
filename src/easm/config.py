@@ -6,8 +6,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap"}
-SCHEDULABLE_RUNNERS = {"subfinder", "asnmap"}
+VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist"}
+SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist"}
 
 
 class CertStreamFilters(BaseModel):
@@ -52,6 +52,18 @@ class AsnmapRunnerConfig(BaseModel):
     enabled: bool = False
     schedule: str = "0 2 * * *"
     args: AsnmapRunnerArgs = Field(default_factory=AsnmapRunnerArgs)
+
+
+class CrtShRunnerConfig(BaseModel):
+    enabled: bool = False
+    schedule: str = "0 4 * * *"
+    args: ScheduledRunnerArgs = Field(default_factory=ScheduledRunnerArgs)
+
+
+class DnstwistRunnerConfig(BaseModel):
+    enabled: bool = False
+    schedule: str = "0 6 * * 1"
+    args: ScheduledRunnerArgs = Field(default_factory=ScheduledRunnerArgs)
 
 
 class CoverageConfig(BaseModel):

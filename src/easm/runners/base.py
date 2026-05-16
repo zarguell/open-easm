@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
+
 from easm.models import RunStatus
 from easm.store import Store
 
@@ -104,3 +106,15 @@ class BaseRunner(ABC):
             },
         )
         return run_id
+
+
+class ApiRunner(BaseRunner):
+    is_api_runner: bool = True
+
+    def __init__(self, store: Store, http_client: httpx.AsyncClient | None = None):
+        super().__init__(store)
+        self._http_client = http_client
+
+    async def close(self):
+        if self._http_client:
+            await self._http_client.aclose()
