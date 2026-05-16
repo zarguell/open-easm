@@ -30,7 +30,6 @@ class AsnmapRunner(BaseRunner):
 
         args_cfg = cfg.get("args", {})
         timeout = args_cfg.get("timeout_seconds", 300)
-        expand_org_names = args_cfg.get("expand_org_names", False)
 
         inserted = 0
         deduped = 0
@@ -38,8 +37,6 @@ class AsnmapRunner(BaseRunner):
 
         for asn in target.match_rules.asns:
             cmd = ["asnmap", "-a", asn, "-json"]
-            if expand_org_names:
-                cmd.append("-org")
 
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -62,12 +59,7 @@ class AsnmapRunner(BaseRunner):
                     stderr_str = stderr.decode(errors="replace")[:500] if stderr else ""
                     logger.warning(
                         "asnmap non-zero exit",
-                        extra={
-                            "asn": asn,
-                            "target_id": target.id,
-                            "returncode": proc.returncode,
-                            "stderr": stderr_str,
-                        },
+                        extra={"asn": asn, "target_id": target.id, "returncode": proc.returncode, "stderr": stderr_str},
                     )
                     continue
 

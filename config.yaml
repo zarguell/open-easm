@@ -1,19 +1,19 @@
 targets:
-  - id: sechostlab
-    name: sechostlab.com
-    type: domain
+  - id: google
+    name: Google
+    type: organization
     enabled: true
     labels:
       env: external
-      owner: zach
+      owner: security
       criticality: high
     match_rules:
       domains:
-        - sechostlab.com
+        - google.com
       keywords:
-        - sec host lab
+        - Google
       asns:
-        - AS399470
+        - AS15169
     runners:
       certstream:
         enabled: true

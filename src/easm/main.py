@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 import structlog
 from alembic.command import upgrade as alembic_upgrade
@@ -47,6 +48,14 @@ async def main() -> None:
     except Exception as e:
         logger.error("failed to load config", path=config_path, error=str(e))
         sys.exit(1)
+
+    pdcp_key = os.environ.get("PDCP_API_KEY")
+    if pdcp_key:
+        provider_dir = Path.home() / ".config" / "subfinder"
+        provider_dir.mkdir(parents=True, exist_ok=True)
+        config_file = provider_dir / "provider-config.yaml"
+        config_file.write_text(f"asnmap:\n  - key: \"{pdcp_key}\"\n")
+        logger.info("wrote PDCP provider config")
 
     logger.info("creating database pool")
     pool = await create_pool(dsn)
