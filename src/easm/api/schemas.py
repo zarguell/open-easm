@@ -64,6 +64,38 @@ class RunTriggerResponse(BaseModel):
     message: str
 
 
+class EntitySummary(BaseModel):
+    id: str
+    org_id: str
+    target_id: str
+    entity_type: str
+    entity_value: str
+    attributes: dict[str, Any]
+    first_seen_at: str
+    last_seen_at: str
+    is_first_discovery: bool
+
+
+class EntityDetail(EntitySummary):
+    raw_event_ids: list[str]
+
+
+class RelationshipSummary(BaseModel):
+    id: str
+    source_entity_id: str
+    target_entity_id: str
+    relationship_type: str
+    relationship_source: str
+    first_seen_at: str
+
+
+class GraphResponse(BaseModel):
+    target_id: str
+    max_depth: int
+    nodes: list[EntitySummary]
+    edges: list[RelationshipSummary]
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str

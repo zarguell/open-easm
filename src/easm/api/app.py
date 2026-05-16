@@ -8,7 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from easm.api.routes import events, health, runs, targets
+from easm.api.routes import config as config_route
+from easm.api.routes import entities, events, graph, health, runs, targets
 
 logger = logging.getLogger(__name__)
 
@@ -45,5 +46,8 @@ def create_app() -> FastAPI:
     app.include_router(targets.router)
     app.include_router(events.router)
     app.include_router(runs.router)
+    app.include_router(entities.router)
+    app.include_router(graph.router)
+    app.include_router(config_route.router)
 
     return app

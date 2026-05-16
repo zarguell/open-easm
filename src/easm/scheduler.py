@@ -70,6 +70,43 @@ class Scheduler:
         self._scheduler.shutdown(wait=wait)
         logger.info("scheduler shutdown")
 
+    def remove_jobs_for_target(self, target_id: str) -> None:
+        prefix = f"{target_id}-"
+        jobs = self._scheduler.get_jobs()
+        for job in jobs:
+            if job.id.startswith(prefix):
+                self._scheduler.remove_job(job.id)
+                logger.info("removed job", extra={"job_id": job.id, "target_id": target_id})
+
+    def add_jobs_for_target(self, target: Any, runner_registry: dict[str, type], store: Any = None) -> None:
+        for runner_name, runner_cfg in target.runners.items():
+            cfg_dict = runner_cfg if isinstance(runner_cfg, dict) else runner_cfg.model_dump()
+            if not cfg_dict.get("enabled", False):
+                continue
+            if runner_name not in runner_registry:
+                logger.warning("unknown runner %s for target %s", runner_name, target.id)
+                continue
+
+            runner_cls = runner_registry[runner_name]
+            if getattr(runner_cls, "supports_schedule", False):
+                schedule = cfg_dict.get("schedule", "0 0 * * *")
+                job_id = f"{target.id}-{runner_name}"
+                existing = self._scheduler.get_job(job_id)
+                if existing is None:
+                    runner = runner_cls(store)  # type: ignore[arg-type]
+                    self._scheduler.add_job(
+                        runner.execute,
+                        "cron",
+                        args=[target, "scheduled"],
+                        id=job_id,
+                        **self._parse_cron(schedule),
+                        replace_existing=True,
+                    )
+                    logger.info(
+                        "scheduled job",
+                        extra={"job_id": job_id, "schedule": schedule, "target_id": target.id},
+                    )
+
     def get_running_jobs(self) -> list[Any]:
         jobs = self._scheduler.get_jobs()
         return list(jobs) if jobs is not None else []
