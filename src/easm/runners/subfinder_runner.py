@@ -38,9 +38,9 @@ class SubfinderRunner(BaseRunner):
         errors = 0
 
         for domain in target.match_rules.domains:
-            cmd = ["subfinder", "-d", domain, "-json"]
+            cmd = ["subfinder", "-d", domain, "-json", "-silent"]
             if passive_only:
-                cmd.append("-passive")
+                cmd.extend(["-s", "crtsh,alienvault,urlscan"])  # subset of fast passive sources
             if recursive:
                 cmd.append("-recursive")
 

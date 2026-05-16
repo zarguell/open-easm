@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from easm.api.routes import health, targets, events, runs
+from easm.api.routes import events, health, runs, targets
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> Any:
     logger.info("API starting up")
     yield
     logger.info("API shutting down")
@@ -36,7 +37,7 @@ def create_app() -> FastAPI:
     )
 
     @app.exception_handler(Exception)
-    async def global_exception_handler(request, exc):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unhandled exception", extra={"path": request.url.path})
         return JSONResponse(status_code=500, content={"error": "internal", "detail": str(exc)})
 

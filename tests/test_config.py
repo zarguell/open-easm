@@ -1,7 +1,9 @@
+from pathlib import Path
+
 import pytest
 import yaml
-from pathlib import Path
-from easm.config import Config, load_config
+
+from easm.config import load_config
 
 
 def make_yaml(tmp_path: Path, content: dict) -> Path:

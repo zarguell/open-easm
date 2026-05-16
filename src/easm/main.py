@@ -6,6 +6,8 @@ import os
 import sys
 
 import structlog
+from alembic.command import upgrade as alembic_upgrade
+from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
 from easm.api.deps import set_config, set_scheduler, set_store
@@ -28,7 +30,9 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler(sys.stdout)])
+logging.basicConfig(
+    level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler(sys.stdout)]
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +50,16 @@ async def main() -> None:
 
     logger.info("creating database pool")
     pool = await create_pool(dsn)
+
+    logger.info("applying database migrations")
+    alembic_cfg = AlembicConfig("alembic.ini")
+    async_dsn = dsn.replace("postgresql://", "postgresql+asyncpg://")
+    alembic_cfg.set_main_option("sqlalchemy.url", async_dsn)
+    from concurrent.futures import ThreadPoolExecutor
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as executor:
+        await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
+
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
 
@@ -67,8 +81,8 @@ async def main() -> None:
         if runner_raw:
             cfg_dict = runner_raw if isinstance(runner_raw, dict) else runner_raw.model_dump()
             if cfg_dict.get("enabled", False):
-                CertStreamRunner = RUNNER_REGISTRY["certstream"]
-                cert_runner = CertStreamRunner(store)
+                certstream_runner_cls = RUNNER_REGISTRY["certstream"]
+                cert_runner = certstream_runner_cls(store)  # type: ignore[abstract]
                 asyncio.create_task(
                     cert_runner.execute(target, "stream"),
                     name=f"certstream-{target.id}",
@@ -78,7 +92,11 @@ async def main() -> None:
     import uvicorn
     uvicorn_cfg = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(uvicorn_cfg)
-    await server.serve()
+    try:
+        await server.serve()
+    finally:
+        await scheduler.shutdown()
+        await close_pool(pool)
 
 
 if __name__ == "__main__":

@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from easm.store import Store
-    from easm.scheduler import Scheduler
     from easm.config import Config
+    from easm.scheduler import Scheduler
+    from easm.store import Store
 
 
 _config: Config | None = None

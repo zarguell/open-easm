@@ -9,7 +9,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/healthz", response_model=HealthResponse)
-async def healthz():
+async def healthz() -> HealthResponse:
     store = get_store()
     scheduler = get_scheduler()
 

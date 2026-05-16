@@ -1,0 +1,37 @@
+targets:
+  - id: sechostlab
+    name: sechostlab.com
+    type: domain
+    enabled: true
+    labels:
+      env: external
+      owner: zach
+      criticality: high
+    match_rules:
+      domains:
+        - sechostlab.com
+      keywords:
+        - sec host lab
+      asns:
+        - AS399470
+    runners:
+      certstream:
+        enabled: true
+        mode: realtime
+        filters:
+          include_common_name: true
+          include_san_dns_names: true
+          match_mode: suffix
+      subfinder:
+        enabled: true
+        schedule: "0 */6 * * *"
+        args:
+          passive_only: true
+          recursive: true
+          timeout_seconds: 60
+      asnmap:
+        enabled: true
+        schedule: "0 2 * * *"
+        args:
+          expand_org_names: true
+          timeout_seconds: 60

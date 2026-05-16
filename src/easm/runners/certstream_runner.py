@@ -44,7 +44,7 @@ class CertStreamRunner(BaseRunner):
 
         while True:
             try:
-                async with websockets.connect(CERTSTREAM_URL, ping_interval=None) as ws:
+                async with websockets.connect(CERTSTREAM_URL, ping_interval=None, open_timeout=15) as ws:
                     backoff = 1.0
                     logger.info("certstream connected", extra={"target_id": target.id})
 

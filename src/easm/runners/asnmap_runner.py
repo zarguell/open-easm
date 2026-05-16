@@ -71,17 +71,20 @@ class AsnmapRunner(BaseRunner):
                     )
                     continue
 
-                try:
-                    parsed = json.loads(stdout.decode().strip())
-                    ok = await self.store.insert_raw_event(
-                        target.id, self.source_name, parsed, run_id
-                    )
-                    if ok:
-                        inserted += 1
-                    else:
-                        deduped += 1
-                except json.JSONDecodeError:
-                    errors += 1
+                for line in stdout.decode().strip().split("\n"):
+                    if not line:
+                        continue
+                    try:
+                        parsed = json.loads(line)
+                        ok = await self.store.insert_raw_event(
+                            target.id, self.source_name, parsed, run_id
+                        )
+                        if ok:
+                            inserted += 1
+                        else:
+                            deduped += 1
+                    except json.JSONDecodeError:
+                        errors += 1
 
             except FileNotFoundError:
                 errors += 1
