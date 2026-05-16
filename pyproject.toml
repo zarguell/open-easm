@@ -1,6 +1,6 @@
 [project]
 name = "open-easm"
-version = "0.2.0"
+version = "1.0.0"
 description = "Self-hosted passive External Attack Surface Management monitoring platform"
 requires-python = ">=3.14"
 dependencies = [
@@ -15,6 +15,8 @@ dependencies = [
     "structlog>=24.0.0",
     "greenlet>=3.5.0",
     "tldextract>=5.3.1",
+    "dnspython>=2.8.0",
+    "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]

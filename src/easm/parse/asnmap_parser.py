@@ -4,18 +4,25 @@ from easm.entity_store import normalize_entity_value
 
 class AsnmapParser(BaseParser):
     source_name = "asnmap"
-    current_version = 1
+    current_version = 2
 
     async def parse(self, raw_event: dict) -> ParseResult:
         raw = raw_event.get("raw", {})
-        asn_val = raw.get("asn", "").strip()
+        asn_val = raw.get("as_number", str(raw.get("asn", ""))).strip()
         if not asn_val:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no asn field")
+            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no as_number field")
         normalized_asn = normalize_entity_value("asn", asn_val)
-        entities = [EntityCandidate(entity_type="asn", value=normalized_asn, attributes={"source": "asnmap"})]
+        entities = [EntityCandidate(entity_type="asn", value=normalized_asn, attributes={
+            "source": "asnmap", "as_name": raw.get("as_name", ""), "as_country": raw.get("as_country", ""),
+        })]
         relationships = []
-        for prefix in raw.get("prefixes", []):
-            cidr = prefix.get("ipv4", "").strip()
+        for cidr in raw.get("as_range", []):
+            if isinstance(cidr, dict):
+                cidr = cidr.get("ipv4", "").strip()
+            elif isinstance(cidr, str):
+                cidr = cidr.strip()
+            else:
+                continue
             if cidr:
                 rel_value = normalize_entity_value("ip_range", cidr)
                 entities.append(EntityCandidate(entity_type="ip_range", value=rel_value, attributes={"source": "asnmap"}))

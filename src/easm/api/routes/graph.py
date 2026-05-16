@@ -31,9 +31,11 @@ async def get_graph(
             WHERE g.depth < $2
         )
         SELECT DISTINCT id, org_id, target_id, entity_type, entity_value, attributes,
-               first_seen_at, last_seen_at, is_first_discovery, depth
+               first_seen_at, last_seen_at, is_first_discovery, MIN(depth) AS depth
         FROM graph
-        ORDER BY depth, entity_type
+        GROUP BY id, org_id, target_id, entity_type, entity_value, attributes,
+                 first_seen_at, last_seen_at, is_first_discovery
+        ORDER BY MIN(depth), entity_type
     """, target_id, depth)
 
     nodes: list[dict[str, Any]] = []
