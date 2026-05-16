@@ -49,7 +49,7 @@ class SubfinderRunner(BaseRunner):
                 try:
                     parsed = json.loads(line)
                     result = await self.store.insert_raw_event(
-                        target.id, self.source_name, parsed, run_id,
+                        target.org_id, target.id, self.source_name, parsed, run_id,
                     )
                     if result:
                         inserted += 1

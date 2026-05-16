@@ -16,10 +16,10 @@ async def test_duplicate_event_returns_false(store):
     await store.mark_run_started(run_id, datetime.now(UTC))
 
     raw = {"host": "test.example.com", "source": "subfinder"}
-    first = await store.insert_raw_event("t", "subfinder", raw, run_id)
+    first = await store.insert_raw_event("default", "t", "subfinder", raw, run_id)
     assert first is True
 
-    second = await store.insert_raw_event("t", "subfinder", raw, run_id)
+    second = await store.insert_raw_event("default", "t", "subfinder", raw, run_id)
     assert second is False
 
 
@@ -31,10 +31,10 @@ async def test_different_key_order_same_hash(store):
     raw_a = {"a": 1, "b": 2}
     raw_b = {"b": 2, "a": 1}
 
-    first = await store.insert_raw_event("t", "subfinder", raw_a, run_id)
+    first = await store.insert_raw_event("default", "t", "subfinder", raw_a, run_id)
     assert first is True
 
-    second = await store.insert_raw_event("t", "subfinder", raw_b, run_id)
+    second = await store.insert_raw_event("default", "t", "subfinder", raw_b, run_id)
     assert second is False
 
 
@@ -47,10 +47,10 @@ async def test_different_targets_same_raw_different_events(store):
 
     raw = {"host": "shared.example.com"}
 
-    first = await store.insert_raw_event("target-a", "subfinder", raw, run_id_a)
+    first = await store.insert_raw_event("default", "target-a", "subfinder", raw, run_id_a)
     assert first is True
 
-    second = await store.insert_raw_event("target-b", "subfinder", raw, run_id_b)
+    second = await store.insert_raw_event("default", "target-b", "subfinder", raw, run_id_b)
     assert second is True
 
 
@@ -63,8 +63,8 @@ async def test_same_target_different_source_different_events(store):
 
     raw = {"host": "same.example.com"}
 
-    first = await store.insert_raw_event("t", "subfinder", raw, run_id_a)
+    first = await store.insert_raw_event("default", "t", "subfinder", raw, run_id_a)
     assert first is True
 
-    second = await store.insert_raw_event("t", "certstream", raw, run_id_b)
+    second = await store.insert_raw_event("default", "t", "certstream", raw, run_id_b)
     assert second is True

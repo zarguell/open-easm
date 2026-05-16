@@ -13,8 +13,8 @@ def _canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
 
 
-def _compute_event_hash(target_id: str, source: str, raw: Any) -> str:
-    payload = f"{target_id}:{source}:{_canonical_json(raw)}"
+def _compute_event_hash(org_id: str, target_id: str, source: str, raw: Any) -> str:
+    payload = f"{org_id}:{target_id}:{source}:{_canonical_json(raw)}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -88,16 +88,17 @@ class Store:
         )
 
     async def insert_raw_event(
-        self, target_id: str, source: str, raw: Any, run_id: uuid.UUID
+        self, org_id: str, target_id: str, source: str, raw: Any, run_id: uuid.UUID
     ) -> bool:
-        event_hash = _compute_event_hash(target_id, source, raw)
+        event_hash = _compute_event_hash(org_id, target_id, source, raw)
         raw_json = json.dumps(raw)
         result = await self.pool.execute(
             """
-            INSERT INTO raw_events (target_id, source, raw, event_hash, run_id)
-            VALUES ($1, $2, $3::jsonb, $4, $5)
+            INSERT INTO raw_events (org_id, target_id, source, raw, event_hash, run_id)
+            VALUES ($1, $2, $3, $4::jsonb, $5, $6)
             ON CONFLICT (event_hash) DO NOTHING
             """,
+            org_id,
             target_id,
             source,
             raw_json,
@@ -144,7 +145,7 @@ class Store:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         idx += 1
         query = f"""
-            SELECT id, target_id, source, collected_at, raw, event_hash, run_id
+            SELECT id, org_id, target_id, source, collected_at, raw, event_hash, run_id
             FROM raw_events
             {where}
             ORDER BY id DESC
@@ -159,6 +160,7 @@ class Store:
         events = [
             {
                 "id": str(r["id"]),
+                "org_id": r["org_id"],
                 "target_id": r["target_id"],
                 "source": r["source"],
                 "collected_at": r["collected_at"].isoformat(),
@@ -174,7 +176,7 @@ class Store:
 
     async def get_event(self, event_id: uuid.UUID) -> dict[str, Any] | None:
         row = await self.pool.fetchrow(
-            "SELECT id, target_id, source, collected_at, raw, event_hash, run_id "
+            "SELECT id, org_id, target_id, source, collected_at, raw, event_hash, run_id "
             "FROM raw_events WHERE id = $1",
             event_id,
         )
@@ -182,6 +184,7 @@ class Store:
             return None
         return {
             "id": str(row["id"]),
+            "org_id": row["org_id"],
             "target_id": row["target_id"],
             "source": row["source"],
             "collected_at": row["collected_at"].isoformat(),

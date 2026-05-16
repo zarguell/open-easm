@@ -64,6 +64,7 @@ class TargetConfig(BaseModel):
     id: str
     name: str
     type: str
+    org_id: str = "default"
     enabled: bool = True
     labels: dict[str, str] = Field(default_factory=dict)
     match_rules: MatchRules = Field(default_factory=MatchRules)

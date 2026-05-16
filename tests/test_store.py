@@ -68,7 +68,7 @@ async def test_insert_and_list_event(store):
     run_id = await store.create_run("t", "subfinder", "scheduled")
     now = datetime.now(UTC)
     await store.mark_run_started(run_id, now)
-    await store.insert_raw_event("t", "subfinder", {"host": "test.example.com"}, run_id)
+    await store.insert_raw_event("default", "t", "subfinder", {"host": "test.example.com"}, run_id)
 
     events, next_cursor = await store.list_events(limit=10)
     assert len(events) == 1
@@ -80,7 +80,7 @@ async def test_get_event_returns_full_raw(store):
     run_id = await store.create_run("t", "subfinder", "scheduled")
     now = datetime.now(UTC)
     await store.mark_run_started(run_id, now)
-    await store.insert_raw_event("t", "subfinder", {"deep": {"nested": True}}, run_id)
+    await store.insert_raw_event("default", "t", "subfinder", {"deep": {"nested": True}}, run_id)
 
     events, _ = await store.list_events(limit=1)
     event_id = events[0]["id"]
@@ -96,7 +96,7 @@ async def test_list_events_pagination(store):
     await store.mark_run_started(run_id, now)
 
     for i in range(3):
-        await store.insert_raw_event("t", "subfinder", {"n": i}, run_id)
+        await store.insert_raw_event("default", "t", "subfinder", {"n": i}, run_id)
 
     page1, cursor = await store.list_events(limit=2)
     assert len(page1) == 2
@@ -111,3 +111,20 @@ async def test_list_events_pagination(store):
 async def test_save_config_snapshot_does_not_error(store):
     raw = {"targets": []}
     await store.save_config_snapshot(raw)
+
+
+@pytest.mark.asyncio
+async def test_insert_raw_event_with_org_id(store):
+    run_id = await store.create_run("test-target", "subfinder", "scheduled")
+    inserted = await store.insert_raw_event(
+        org_id="test-org",
+        target_id="test-target",
+        source="subfinder",
+        raw={"domain": "example.com"},
+        run_id=run_id,
+    )
+    assert inserted is True
+    events, _ = await store.list_events(target_id="test-target")
+    assert len(events) == 1
+    assert events[0]["raw"] == {"domain": "example.com"}
+    assert events[0]["org_id"] == "test-org"

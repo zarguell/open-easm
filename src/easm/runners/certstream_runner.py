@@ -62,7 +62,7 @@ class CertStreamRunner(BaseRunner):
                         data = msg.get("data", {})
                         if self._matches_target(data, target, match_mode, include_cn, include_san):
                             ok = await self.store.insert_raw_event(
-                                target.id, self.source_name, {"cert_data": data}, run_id
+                                target.org_id, target.id, self.source_name, {"cert_data": data}, run_id
                             )
                             if ok:
                                 inserted += 1
