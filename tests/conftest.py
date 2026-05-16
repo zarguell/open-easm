@@ -28,6 +28,16 @@ async def db_pool():
     await pool.close()
 
 
+@pytest_asyncio.fixture
+async def scheduler():
+    from easm.scheduler import Scheduler
+
+    s = Scheduler()
+    yield s
+    if s.running:
+        await s.shutdown()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def clean_db(db_pool):
     async with db_pool.acquire() as conn:
