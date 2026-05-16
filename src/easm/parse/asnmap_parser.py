@@ -17,8 +17,8 @@ class AsnmapParser(BaseParser):
         for prefix in raw.get("prefixes", []):
             cidr = prefix.get("ipv4", "").strip()
             if cidr:
-                entities.append(EntityCandidate(entity_type="ip_range", value=cidr, attributes={"source": "asnmap"}))
                 rel_value = normalize_entity_value("ip_range", cidr)
+                entities.append(EntityCandidate(entity_type="ip_range", value=rel_value, attributes={"source": "asnmap"}))
                 relationships.append(RelationshipCandidate(
                     source_type="asn", source_value=normalized_asn,
                     target_type="ip_range", target_value=rel_value,

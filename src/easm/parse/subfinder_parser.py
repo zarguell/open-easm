@@ -1,3 +1,4 @@
+from easm.entity_store import normalize_entity_value
 from easm.parse.base import BaseParser, ParseResult, EntityCandidate
 
 
@@ -11,6 +12,6 @@ class SubfinderParser(BaseParser):
         if not domain:
             return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no host field")
         return ParseResult(
-            entities=[EntityCandidate(entity_type="domain", value=domain, attributes={"source": "subfinder"})],
+            entities=[EntityCandidate(entity_type="domain", value=normalize_entity_value("domain", domain), attributes={"source": "subfinder"})],
             relationships=[],
         )

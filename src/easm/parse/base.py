@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 import uuid
 
 
@@ -7,7 +8,7 @@ import uuid
 class EntityCandidate:
     entity_type: str
     value: str
-    attributes: dict
+    attributes: dict[str, Any]
 
 
 @dataclass
@@ -39,5 +40,6 @@ class BaseParser(ABC):
         return f"{self.source_name}:{self.current_version}"
 
     @abstractmethod
-    async def parse(self, raw_event: dict) -> ParseResult:
+    async def parse(self, raw_event: dict[str, Any]) -> ParseResult:
         pass
+
