@@ -117,10 +117,19 @@ async def backfill_worker(
             if target and hasattr(target, 'pivot') and target.pivot.enabled:
                 for (etype, evalue, eid) in new_entities:
                     session_id_val = uuid.UUID(session_id) if session_id else None
-                    await resolver.check_and_enqueue(
-                        target, etype, evalue, eid,
-                        depth=1, discovery_session_id=session_id_val,
-                    )
+                    try:
+                        await resolver.check_and_enqueue(
+                            target, etype, evalue, eid,
+                            depth=1, discovery_session_id=session_id_val,
+                        )
+                    except Exception as exc:
+                        import logging
+                        logger = logging.getLogger("easm.backfill")
+                        logger.exception("resolver error",
+                                         extra={"target_id": row["target_id"],
+                                                "entity_type": etype,
+                                                "entity_value": evalue,
+                                                "error": str(exc)})
 
             await pool.execute(
                 "UPDATE raw_events SET parsed_at = NOW(), parsed_by = $1 WHERE id = $2",

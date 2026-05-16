@@ -35,3 +35,54 @@ targets:
         args:
           expand_org_names: true
           timeout_seconds: 60
+
+  - id: netnod
+    name: Netnod
+    type: organization
+    enabled: true
+    labels:
+      env: external
+      owner: security
+      criticality: high
+    match_rules:
+      asns:
+        - AS50563
+    runners:
+      asnmap:
+        enabled: true
+        schedule: "0 2 * * *"
+        args:
+          expand_org_names: true
+          timeout_seconds: 60
+      certstream:
+        enabled: true
+        mode: realtime
+        filters:
+          include_common_name: true
+          include_san_dns_names: true
+          match_mode: suffix
+    pivot:
+      enabled: true
+      max_depth: 4
+      max_concurrent: 3
+      batch_interval_ms: 200
+      scope_mode: permissive
+      allowed_pivots:
+        - from: ip_range
+          to: ip
+          via: reverse_dns
+          cooldown_hours: 0
+        - from: hostname
+          to: ip
+          via: dns_resolve
+          cooldown_hours: 0
+        - from: hostname
+          to: domain
+          via: domain_extract
+          cooldown_hours: 24
+        - from: domain
+          to: certificate
+          via: crtsh_search
+          cooldown_hours: 24
+          coverage:
+            apex_covers_subdomains: true

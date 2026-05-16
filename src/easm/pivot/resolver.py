@@ -71,8 +71,7 @@ class PivotResolver:
               AND status='completed'
               AND completed_at > NOW() - ($4 || ' hours')::INTERVAL
             LIMIT 1
-        """, org_id, apex, pivot_type, cooldown_hours)
-        return row is not None
+        """, org_id, apex, pivot_type, str(cooldown_hours))
 
     async def _check_cooldown(self, org_id, entity_type, entity_value, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""
@@ -81,8 +80,7 @@ class PivotResolver:
               AND status IN ('completed', 'running')
               AND enqueued_at > NOW() - ($5 || ' hours')::INTERVAL
             LIMIT 1
-        """, org_id, entity_type, entity_value, pivot_type, cooldown_hours)
-        return row is not None
+        """, org_id, entity_type, entity_value, pivot_type, str(cooldown_hours))
 
     async def _insert_skipped(self, org_id, target_id, entity_type, entity_value, pivot_type, reason):
         await self.pool.execute("""

@@ -5,6 +5,7 @@ from easm.pivot.handlers.shodan_enrich import ShodanEnrichHandler
 from easm.pivot.handlers.reverse_dns import ReverseDnsHandler
 from easm.pivot.handlers.domain_rdap import DomainRdapHandler
 from easm.pivot.handlers.subdomain_enum import SubdomainEnumHandler
+from easm.pivot.handlers.domain_extract import DomainExtractHandler
 
 PIVOT_HANDLER_REGISTRY: dict = {
     "dns_resolve": DnsResolveHandler,
@@ -14,4 +15,5 @@ PIVOT_HANDLER_REGISTRY: dict = {
     "reverse_dns": ReverseDnsHandler,
     "domain_rdap": DomainRdapHandler,
     "subdomain_enum": SubdomainEnumHandler,
+    "domain_extract": DomainExtractHandler,
 }
