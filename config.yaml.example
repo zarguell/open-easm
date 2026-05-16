@@ -1,0 +1,39 @@
+targets:
+  - id: corp-primary
+    name: Example Corp Primary
+    type: organization
+    enabled: true
+    labels:
+      env: prod
+      owner: security
+      criticality: high
+    match_rules:
+      domains:
+        - example.com
+        - example.org
+      keywords:
+        - Example Corp
+        - Example
+      asns:
+        - AS12345
+    runners:
+      certstream:
+        enabled: true
+        mode: realtime
+        filters:
+          include_common_name: true
+          include_san_dns_names: true
+          match_mode: suffix
+      subfinder:
+        enabled: true
+        schedule: "0 */6 * * *"
+        args:
+          passive_only: true
+          recursive: true
+          timeout_seconds: 300
+      asnmap:
+        enabled: true
+        schedule: "0 2 * * *"
+        args:
+          expand_org_names: true
+          timeout_seconds: 300
