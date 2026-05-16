@@ -1,1 +1,1 @@
-PIVOT_HANDLER_REGISTRY: dict = {}
+from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY  # noqa: F401
