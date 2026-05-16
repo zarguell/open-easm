@@ -1,3 +1,13 @@
+# ── Stage 1: Build the React UI ──
+FROM node:22-slim AS ui-builder
+
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json* ./
+RUN npm install
+COPY ui/ .
+RUN npm run build
+
+# ── Stage 2: Python app + built UI ──
 FROM python:3.14-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,6 +36,9 @@ RUN pip install --no-cache-dir hatchling && pip install --no-cache-dir -e .
 
 COPY alembic/ alembic/
 COPY alembic.ini .
+
+# Copy the built UI from the first stage
+COPY --from=ui-builder /ui/dist /app/ui/dist
 
 RUN useradd --create-home --shell /bin/bash easm
 USER easm

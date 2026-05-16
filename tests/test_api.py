@@ -34,7 +34,7 @@ async def test_api(test_config, db_pool, scheduler):
 
 @pytest.mark.asyncio
 async def test_healthz(test_api):
-    resp = await test_api.get("/healthz")
+    resp = await test_api.get("/api/healthz")
     assert resp.status_code == 200
     data = resp.json()
     assert "status" in data
@@ -43,7 +43,7 @@ async def test_healthz(test_api):
 
 @pytest.mark.asyncio
 async def test_list_targets(test_api):
-    resp = await test_api.get("/targets")
+    resp = await test_api.get("/api/targets")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
@@ -52,13 +52,13 @@ async def test_list_targets(test_api):
 
 @pytest.mark.asyncio
 async def test_get_target_not_found(test_api):
-    resp = await test_api.get("/targets/nonexistent")
+    resp = await test_api.get("/api/targets/nonexistent")
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_events_empty(test_api):
-    resp = await test_api.get("/events")
+    resp = await test_api.get("/api/events")
     assert resp.status_code == 200
     data = resp.json()
     assert data == []
@@ -66,7 +66,7 @@ async def test_list_events_empty(test_api):
 
 @pytest.mark.asyncio
 async def test_list_runs_empty(test_api):
-    resp = await test_api.get("/runs")
+    resp = await test_api.get("/api/runs")
     assert resp.status_code == 200
     data = resp.json()
     assert data == []

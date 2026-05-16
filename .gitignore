@@ -1,3 +1,20 @@
 __pycache__/
 *.pyc
 .env
+
+# UI
+ui/node_modules/
+ui/dist/
+
+# Internal tooling
+.sisyphus/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

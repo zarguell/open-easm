@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from easm.api.routes import config as config_route
-from easm.api.routes import entities, events, graph, health, runs, targets
+from easm.api.routes import entities, events, graph, health, pivot_queue, runs, targets
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +42,31 @@ def create_app() -> FastAPI:
         logger.exception("unhandled exception", extra={"path": request.url.path})
         return JSONResponse(status_code=500, content={"error": "internal", "detail": str(exc)})
 
-    app.include_router(health.router)
-    app.include_router(targets.router)
-    app.include_router(events.router)
-    app.include_router(runs.router)
-    app.include_router(entities.router)
-    app.include_router(graph.router)
-    app.include_router(config_route.router)
+    app.include_router(health.router, prefix="/api")
+    app.include_router(targets.router, prefix="/api")
+    app.include_router(events.router, prefix="/api")
+    app.include_router(runs.router, prefix="/api")
+    app.include_router(entities.router, prefix="/api")
+    app.include_router(graph.router, prefix="/api")
+    app.include_router(config_route.router, prefix="/api")
+    app.include_router(pivot_queue.router, prefix="/api")
+
+    # Serve React SPA from ui/dist (production only)
+    import os
+    _static_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "dist")
+    if os.path.isdir(_static_dir):
+        from fastapi.staticfiles import StaticFiles  # noqa: F401
+        from fastapi.responses import FileResponse
+
+        @app.get("/ui/{full_path:path}")
+        async def serve_spa(full_path: str):
+            file_path = os.path.join(_static_dir, full_path)
+            if os.path.isfile(file_path):
+                return FileResponse(file_path)
+            return FileResponse(os.path.join(_static_dir, "index.html"))
+
+        @app.get("/ui")
+        async def serve_spa_index():
+            return FileResponse(os.path.join(_static_dir, "index.html"))
 
     return app
