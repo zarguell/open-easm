@@ -54,10 +54,38 @@ class AsnmapRunnerConfig(BaseModel):
     args: AsnmapRunnerArgs = Field(default_factory=AsnmapRunnerArgs)
 
 
+class CoverageConfig(BaseModel):
+    apex_covers_subdomains: bool = False
+
+
+class AllowedPivot(BaseModel):
+    from_: str = Field(alias="from")
+    to: str
+    via: str
+    cooldown_hours: int = 0
+    coverage: CoverageConfig | None = None
+
+
+class PivotConfig(BaseModel):
+    enabled: bool = False
+    max_depth: int = 3
+    max_concurrent: int = 3
+    batch_interval_ms: int = 200
+    scope_mode: str = "strict"
+    allowed_pivots: list[AllowedPivot] = Field(default_factory=list)
+
+
+VALID_PIVOT_TYPES = {
+    "dns_resolve", "rdap_lookup", "crtsh_search",
+    "shodan_enrich", "reverse_dns", "domain_rdap", "subdomain_enum",
+}
+
+
 class MatchRules(BaseModel):
     domains: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     asns: list[str] = Field(default_factory=list)
+    ip_ranges: list[str] = Field(default_factory=list)
 
 
 class TargetConfig(BaseModel):
@@ -69,6 +97,7 @@ class TargetConfig(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     match_rules: MatchRules = Field(default_factory=MatchRules)
     runners: dict[str, Any] = Field(default_factory=dict)
+    pivot: PivotConfig = Field(default_factory=PivotConfig)
 
     @field_validator("id")
     @classmethod

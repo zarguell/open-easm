@@ -44,6 +44,7 @@ async def clean_db(db_pool):
         await conn.execute("DELETE FROM entity_raw_event_links")
         await conn.execute("DELETE FROM entity_relationships")
         await conn.execute("DELETE FROM entities")
+        await conn.execute("DELETE FROM pivot_queue")
         await conn.execute("DELETE FROM raw_events")
         await conn.execute("DELETE FROM runs")
         await conn.execute("DELETE FROM config_snapshots")

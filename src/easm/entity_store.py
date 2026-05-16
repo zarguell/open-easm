@@ -6,10 +6,10 @@ import uuid
 from typing import Any
 
 import asyncpg
+from easm.models import EntityType
 
 
 def normalize_entity_value(entity_type: str, value: str) -> str:
-    from easm.models import EntityType
 
     if entity_type == EntityType.DOMAIN.value:
         return value.lower().rstrip(".").strip()

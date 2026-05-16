@@ -1,0 +1,1 @@
+PIVOT_HANDLER_REGISTRY: dict = {}
