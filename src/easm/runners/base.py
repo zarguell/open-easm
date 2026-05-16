@@ -92,6 +92,26 @@ class BaseRunner(ABC):
             error_message=error_message,
         )
 
+        # Compute run counters
+        try:
+            run_data = await self.store.get_run(run_id)
+            session_id = run_data.get("discovery_session_id") if run_data else None
+            if session_id:
+                new_count = await self.store.pool.fetchval(
+                    "SELECT COUNT(*) FROM entities WHERE discovery_session_id = $1 AND is_first_discovery = TRUE",
+                    uuid.UUID(session_id),
+                )
+                total_count = await self.store.pool.fetchval(
+                    "SELECT COUNT(*) FROM entities WHERE discovery_session_id = $1",
+                    uuid.UUID(session_id),
+                )
+                await self.store.pool.execute(
+                    "UPDATE runs SET new_entity_count = $1, total_entity_count = $2 WHERE id = $3",
+                    new_count or 0, total_count or 0, run_id,
+                )
+        except Exception:
+            logger.exception("failed to compute run counters", extra={"run_id": str(run_id)})
+
         logger.info(
             "run finished",
             extra={

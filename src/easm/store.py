@@ -30,10 +30,11 @@ class Store:
         scheduled_for: datetime | None = None,
         org_id: str = "default",
     ) -> uuid.UUID:
+        discovery_session_id = uuid.uuid7()
         row = await self.pool.fetchrow(
             """
-            INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for)
-            VALUES ($1, $2, $3, $4, 'pending', $5)
+            INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for, discovery_session_id)
+            VALUES ($1, $2, $3, $4, 'pending', $5, $6)
             RETURNING id
             """,
             org_id,
@@ -41,6 +42,7 @@ class Store:
             source,
             trigger_type,
             scheduled_for,
+            discovery_session_id,
         )
         assert row is not None
         return cast(uuid.UUID, row["id"])
@@ -241,7 +243,8 @@ class Store:
         query = f"""
             SELECT id, target_id, source, trigger_type, status, scheduled_for,
                    started_at, finished_at, duration_ms, inserted_count,
-                   deduped_count, error_count, error_message, metadata
+                   deduped_count, error_count, error_message, metadata,
+                   discovery_session_id, new_entity_count, total_entity_count
             FROM runs
             {where}
             ORDER BY started_at DESC NULLS LAST
@@ -256,7 +259,8 @@ class Store:
             """
             SELECT id, target_id, source, trigger_type, status, scheduled_for,
                    started_at, finished_at, duration_ms, inserted_count,
-                   deduped_count, error_count, error_message, metadata
+                   deduped_count, error_count, error_message, metadata,
+                   discovery_session_id, new_entity_count, total_entity_count
             FROM runs WHERE id = $1
             """,
             run_id,
@@ -297,6 +301,9 @@ def _row_to_run_dict(row: asyncpg.Record) -> dict[str, Any]:
         "deduped_count": row["deduped_count"],
         "error_count": row["error_count"],
         "error_message": row["error_message"],
+        "discovery_session_id": str(row["discovery_session_id"]) if row["discovery_session_id"] else None,
+        "new_entity_count": row["new_entity_count"],
+        "total_entity_count": row["total_entity_count"],
         "metadata": (
             json.loads(row["metadata"])
             if isinstance(row["metadata"], str)

@@ -16,6 +16,7 @@ from easm.api.routes.health import check_binaries
 from easm.backfill import backfill_worker
 from easm.config import load_config
 from easm.db import close_pool, create_pool
+from easm.pivot.worker import pivot_worker_pool
 from easm.runners import RUNNER_REGISTRY
 from easm.scheduler import Scheduler
 from easm.store import Store
@@ -110,6 +111,11 @@ async def main() -> None:
     backfill_task = asyncio.create_task(backfill_worker(pool, config, batch_size=100, batch_interval_ms=500))
     logger.info("started backfill worker")
 
+    pivot_task = asyncio.create_task(pivot_worker_pool(
+        pool, n=3, batch_interval_ms=200
+    ))
+    logger.info("started pivot worker pool")
+
     import uvicorn
     uvicorn_cfg = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(uvicorn_cfg)
@@ -117,7 +123,9 @@ async def main() -> None:
         await server.serve()
     finally:
         backfill_task.cancel()
+        pivot_task.cancel()
         await backfill_task
+        await pivot_task
         await scheduler.shutdown()
         await close_pool(pool)
 
