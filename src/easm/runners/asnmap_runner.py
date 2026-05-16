@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
-from typing import Any
 
 from easm.config import TargetConfig
 from easm.runners.base import BaseRunner
@@ -21,72 +19,39 @@ class AsnmapRunner(BaseRunner):
     async def run_once(
         self, target: TargetConfig, trigger_type: str, run_id: uuid.UUID
     ) -> tuple[int, int, int]:
-        cfg: dict[str, Any] = {}
-        runner_raw = target.runners.get("asnmap", {})
-        if isinstance(runner_raw, dict):
-            cfg = runner_raw
-        elif hasattr(runner_raw, "model_dump"):
-            cfg = runner_raw.model_dump()
-
-        args_cfg = cfg.get("args", {})
-        timeout = args_cfg.get("timeout_seconds", 300)
-
-        inserted = 0
-        deduped = 0
-        errors = 0
+        cfg = self.get_runner_config(target)
+        timeout = cfg.get("args", {}).get("timeout_seconds", 300)
+        inserted = deduped = errors = 0
 
         for asn in target.match_rules.asns:
             cmd = ["asnmap", "-a", asn, "-json"]
 
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                except TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    errors += 1
-                    logger.warning("asnmap timeout", extra={"asn": asn, "target_id": target.id})
-                    continue
-
-                if proc.returncode != 0:
-                    errors += 1
-                    stderr_str = stderr.decode(errors="replace")[:500] if stderr else ""
-                    logger.warning(
-                        "asnmap non-zero exit",
-                        extra={"asn": asn, "target_id": target.id, "returncode": proc.returncode, "stderr": stderr_str},
-                    )
-                    continue
-
-                for line in stdout.decode().strip().split("\n"):
-                    if not line:
-                        continue
-                    try:
-                        parsed = json.loads(line)
-                        ok = await self.store.insert_raw_event(
-                            target.id, self.source_name, parsed, run_id
-                        )
-                        if ok:
-                            inserted += 1
-                        else:
-                            deduped += 1
-                    except json.JSONDecodeError:
-                        errors += 1
-
-            except FileNotFoundError:
+            ok, stdout, stderr = await self._exec_subprocess(cmd, timeout=timeout)
+            if not ok:
                 errors += 1
-                logger.error("asnmap binary not found in PATH")
-                break
-            except Exception as e:
-                errors += 1
-                logger.error(
+                logger.warning(
                     "asnmap error",
-                    extra={"asn": asn, "target_id": target.id, "error": str(e)},
+                    extra={
+                        "asn": asn,
+                        "target_id": target.id,
+                        "stderr": stderr[:200] if stderr else "",
+                    },
                 )
+                continue
+
+            for line in stdout.strip().split("\n"):
+                if not line:
+                    continue
+                try:
+                    parsed = json.loads(line)
+                    result = await self.store.insert_raw_event(
+                        target.id, self.source_name, parsed, run_id,
+                    )
+                    if result:
+                        inserted += 1
+                    else:
+                        deduped += 1
+                except json.JSONDecodeError:
+                    errors += 1
 
         return inserted, deduped, errors
