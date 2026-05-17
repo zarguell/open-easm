@@ -1,5 +1,5 @@
-from easm.parse.base import BaseParser, ParseResult, EntityCandidate
 from easm.entity_store import normalize_entity_value
+from easm.parse.base import BaseParser, EntityCandidate, ParseResult
 
 
 class CloudBucketParser(BaseParser):

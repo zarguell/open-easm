@@ -6,8 +6,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist"}
-SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist"}
+VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum"}
+SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum"}
 
 
 class CertStreamFilters(BaseModel):
@@ -92,6 +92,9 @@ VALID_PIVOT_TYPES = {
     "dns_resolve", "rdap_lookup", "crtsh_search",
     "shodan_enrich", "reverse_dns", "domain_rdap", "subdomain_enum",
     "tls_cert_grab", "geoip_enrich",
+    "greynoise_enrich",
+    "abuseipdb_enrich",
+    "urlscan_enrich",
 }
 
 

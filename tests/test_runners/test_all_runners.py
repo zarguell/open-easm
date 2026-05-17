@@ -5,12 +5,13 @@ from easm.runners import (
     CrtShRunner,
     DnstwistRunner,
     SubfinderRunner,
+    CloudBucketRunner,
     RUNNER_REGISTRY,
 )
 
 
 def test_runner_registry_has_all_runners():
-    assert set(RUNNER_REGISTRY.keys()) == {"subfinder", "asnmap", "certstream", "crtsh", "dnstwist"}
+    assert set(RUNNER_REGISTRY.keys()) == {"subfinder", "asnmap", "certstream", "crtsh", "dnstwist", "cloud_enum"}
 
 
 def test_subfinder_runner_class_attributes():
@@ -47,3 +48,11 @@ def test_dnstwist_runner_class_attributes():
     assert DnstwistRunner.supports_schedule is True
     assert DnstwistRunner.supports_manual_trigger is True
     assert DnstwistRunner.is_continuous is False
+
+
+def test_cloud_bucket_runner_attributes():
+    assert CloudBucketRunner.source_name == "cloud_enum"
+    assert CloudBucketRunner.supports_schedule is True
+    assert CloudBucketRunner.supports_manual_trigger is True
+    assert CloudBucketRunner.is_continuous is False
+    assert CloudBucketRunner.is_api_runner is True

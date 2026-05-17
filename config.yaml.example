@@ -65,6 +65,12 @@ targets:
         args:
           expand_org_names: true
           timeout_seconds: 300
+      cloud_enum:
+        enabled: true
+        schedule: "0 8 * * 1"
+        args:
+          timeout_seconds: 600
+          concurrency: 20
     pivot:
       enabled: true
       max_depth: 4
@@ -97,4 +103,17 @@ targets:
         - from: ip
           to: ip
           via: geoip_enrich
+          cooldown_hours: 168
+        # Threat intel enrichment pivots
+        - from: ip
+          to: ip
+          via: greynoise_enrich
+          cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: abuseipdb_enrich
+          cooldown_hours: 168
+        - from: domain
+          to: domain
+          via: urlscan_enrich
           cooldown_hours: 168
