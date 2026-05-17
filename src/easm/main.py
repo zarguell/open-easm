@@ -89,6 +89,15 @@ async def main() -> None:
     scheduler.setup_jobs(config, store)
     scheduler.start()
 
+    from easm.vuln_cache import refresh_kev_cache
+    try:
+        kev_count = await refresh_kev_cache(pool)
+        logger.info("initial kev cache populated", count=kev_count)
+    except Exception:
+        logger.exception("initial kev cache population failed (non-fatal)")
+
+    scheduler.setup_kev_refresh(pool)
+
     app = create_app()
 
     for target in config.targets:

@@ -18,6 +18,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 
 from easm.geoip import GeoIpLookup
+from easm.vuln_enrichment import cpe_vuln_enrich
 
 logger = logging.getLogger(__name__)
 
@@ -156,28 +157,54 @@ async def dns_mail_records(job: dict, pool) -> list[dict[str, Any]]:
     return [result]
 
 
-async def crtsh_search(job: dict, pool) -> list[dict[str, Any]]:
+async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                       limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
     url = f"https://crt.sh/?q=%.{domain}&output=json"
     max_retries = 3
     retry_statuses = (429, 502, 503, 504)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        certs = None
-        for attempt in range(max_retries):
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                certs = resp.json()
-                break
-            if resp.status_code in retry_statuses and attempt < max_retries - 1:
-                retry_after = resp.headers.get("Retry-After")
-                wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
-                logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
-                               resp.status_code, domain, wait)
-                await asyncio.sleep(wait)
-                continue
-            resp.raise_for_status()
-        if certs is None:
-            raise RuntimeError("crtsh request failed after all retries")
+    sem = limiters.crtsh if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            certs = None
+            for attempt in range(max_retries):
+                resp = await http_client.get(url)
+                if resp.status_code == 200:
+                    certs = resp.json()
+                    break
+                if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                    retry_after = resp.headers.get("Retry-After")
+                    wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
+                                   resp.status_code, domain, wait)
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+            if certs is None:
+                raise RuntimeError("crtsh request failed after all retries")
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                certs = None
+                for attempt in range(max_retries):
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        certs = resp.json()
+                        break
+                    if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                        retry_after = resp.headers.get("Retry-After")
+                        wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
+                                       resp.status_code, domain, wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    resp.raise_for_status()
+                if certs is None:
+                    raise RuntimeError("crtsh request failed after all retries")
+    finally:
+        if sem:
+            sem.release()
     return [{
         "name_value": c.get("name_value", ""),
         "issuer_name_id": c.get("issuer_name_id", ""),
@@ -225,60 +252,116 @@ async def subdomain_takeover(job: dict, pool) -> list[dict[str, Any]]:
     }}]
 
 
-async def passive_dns(job: dict, pool) -> list[dict[str, Any]]:
+async def passive_dns(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                      limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
     api_key = ""  # configured via env/API in production
     if not api_key:
         return [{"domain": domain, "message": "no securitytrails api key"}]
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            f"https://api.securitytrails.com/v1/history/{domain}/dns/a",
-            headers={"APIKEY": api_key})
-        if resp.status_code == 404:
-            return [{"domain": domain, "message": "no dns history"}]
-        resp.raise_for_status()
-        records = resp.json().get("records", [])
+    sem = limiters.securitytrails if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get(
+                f"https://api.securitytrails.com/v1/history/{domain}/dns/a",
+                headers={"APIKEY": api_key})
+            if resp.status_code == 404:
+                return [{"domain": domain, "message": "no dns history"}]
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"https://api.securitytrails.com/v1/history/{domain}/dns/a",
+                    headers={"APIKEY": api_key})
+                if resp.status_code == 404:
+                    return [{"domain": domain, "message": "no dns history"}]
+                resp.raise_for_status()
+                records = resp.json().get("records", [])
+    finally:
+        if sem:
+            sem.release()
     return [{"domain": domain, "passive_dns": {
         "a_records": [{"ip": r.get("values", [{}])[0].get("ip", ""),
-                       "first_seen": r.get("first_seen", ""),
-                       "last_seen": r.get("last_seen", "")} for r in records],
+                        "first_seen": r.get("first_seen", ""),
+                        "last_seen": r.get("last_seen", "")} for r in records],
     }}]
 
 
-async def rdap_lookup(job: dict, pool) -> list[dict[str, Any]]:
+async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                      limiters=None) -> list[dict[str, Any]]:
     asn = job["entity_value"]
     numeric_asn = asn.replace("AS", "")
     results: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
-        resp.raise_for_status()
-        data = resp.json()
-        try:
-            resp2 = await client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
-            resp2.raise_for_status()
-            data_arin = resp2.json()
-        except Exception:
-            data_arin = {}
-        for entity in data.get("entities", []):
-            for role in entity.get("roles", []):
-                if role in ("registrant", "org"):
-                    results.append({"asn": asn, "org": entity.get("handle", ""), "source": "ripe"})
+    sem = limiters.rdap if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
+            resp.raise_for_status()
+            data = resp.json()
+            try:
+                resp2 = await http_client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
+                resp2.raise_for_status()
+                data_arin = resp2.json()
+            except Exception:
+                data_arin = {}
+            for entity in data.get("entities", []):
+                for role in entity.get("roles", []):
+                    if role in ("registrant", "org"):
+                        results.append({"asn": asn, "org": entity.get("handle", ""), "source": "ripe"})
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
+                resp.raise_for_status()
+                data = resp.json()
+                try:
+                    resp2 = await client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
+                    resp2.raise_for_status()
+                    data_arin = resp2.json()
+                except Exception:
+                    data_arin = {}
+                for entity in data.get("entities", []):
+                    for role in entity.get("roles", []):
+                        if role in ("registrant", "org"):
+                            results.append({"asn": asn, "org": entity.get("handle", ""), "source": "ripe"})
+    finally:
+        if sem:
+            sem.release()
     return results if results else [{"asn": asn, "message": "no RDAP results"}]
 
 
-async def reverse_whois(job: dict, pool) -> list[dict[str, Any]]:
+async def reverse_whois(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                        limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"https://reversewhois.io/?searchterm={domain}",
-                                headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
-        domains = re.findall(r'<a[^>]*>([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})</a>', resp.text)
-        registrars = re.findall(r'(\d{4}-\d{2}-\d{2})', resp.text)
+    sem = limiters.rdap if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get(f"https://reversewhois.io/?searchterm={domain}",
+                                    headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            domains = re.findall(r'<a[^>]*>([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})</a>', resp.text)
+            registrars = re.findall(r'(\d{4}-\d{2}-\d{2})', resp.text)
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(f"https://reversewhois.io/?searchterm={domain}",
+                                        headers={"User-Agent": "Mozilla/5.0"})
+                resp.raise_for_status()
+                domains = re.findall(r'<a[^>]*>([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})</a>', resp.text)
+                registrars = re.findall(r'(\d{4}-\d{2}-\d{2})', resp.text)
+    finally:
+        if sem:
+            sem.release()
     return [{"domain": domain, "reverse_whois": {
         "related_domains": list(set(domains)), "dates_found": registrars}}]
 
 
-async def domain_rdap(job: dict, pool) -> list[dict[str, Any]]:
+async def domain_rdap(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                      limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
     parts = domain.rsplit(".", 1)
     tld = parts[-1].lower() if len(parts) > 1 else ""
@@ -287,14 +370,30 @@ async def domain_rdap(job: dict, pool) -> list[dict[str, Any]]:
              "org": "https://rdap.org"}
     base = bases.get(tld, "https://rdap.org")
     url = f"{base}/domain/{domain}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            logger.debug("RDAP lookup failed for %s: %s", domain, e)
-            return [{"domain": domain, "message": f"rdap lookup failed: {e}"}]
+    sem = limiters.rdap if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            try:
+                resp = await http_client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                logger.debug("RDAP lookup failed for %s: %s", domain, e)
+                return [{"domain": domain, "message": f"rdap lookup failed: {e}"}]
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                try:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as e:
+                    logger.debug("RDAP lookup failed for %s: %s", domain, e)
+                    return [{"domain": domain, "message": f"rdap lookup failed: {e}"}]
+    finally:
+        if sem:
+            sem.release()
     result: dict[str, Any] = {"domain": domain, "source": "domain_rdap"}
     if data.get("status"):
         result["status"] = data["status"]
@@ -332,49 +431,100 @@ async def domain_rdap(job: dict, pool) -> list[dict[str, Any]]:
     return [result]
 
 
-async def shodan_enrich(job: dict, pool) -> list[dict[str, Any]]:
+async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                        limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
     api_key = ""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        if api_key:
-            resp = await client.get(f"https://api.shodan.io/shodan/host/{ip}",
-                                    params={"key": api_key})
-            if resp.status_code == 404:
-                return [{"ip": ip, "message": "no shodan data"}]
-            resp.raise_for_status()
-            data = resp.json()
-            return [{"ip": ip, "shodan": {
-                "ports": data.get("ports", []), "hostnames": data.get("hostnames", []),
-                "domains": data.get("domains", []), "vulns": data.get("vulns", []),
-                "org": data.get("org", ""), "isp": data.get("isp", ""),
-                "asn": data.get("asn", ""), "country_name": data.get("country_name", ""),
-                "city": data.get("city", ""), "os": data.get("os", ""),
-                "data": data.get("data", []),
-            }}]
+    sem = limiters.shodan if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            if api_key:
+                resp = await http_client.get(f"https://api.shodan.io/shodan/host/{ip}",
+                                        params={"key": api_key})
+                if resp.status_code == 404:
+                    return [{"ip": ip, "message": "no shodan data"}]
+                resp.raise_for_status()
+                data = resp.json()
+                return [{"ip": ip, "shodan": {
+                    "ports": data.get("ports", []), "hostnames": data.get("hostnames", []),
+                    "domains": data.get("domains", []), "vulns": data.get("vulns", []),
+                    "org": data.get("org", ""), "isp": data.get("isp", ""),
+                    "asn": data.get("asn", ""), "country_name": data.get("country_name", ""),
+                    "city": data.get("city", ""), "os": data.get("os", ""),
+                    "data": data.get("data", []),
+                }}]
+            else:
+                resp = await http_client.get(f"https://internetdb.shodan.io/{ip}")
+                if resp.status_code == 404:
+                    return [{"ip": ip, "message": "no shodan data"}]
+                resp.raise_for_status()
+                data = resp.json()
+                return [{"ip": ip, "ports": data.get("ports", []),
+                         "hostnames": data.get("hostnames", []), "cpes": data.get("cpes", []),
+                         "vulns": data.get("vulns", []), "source": "shodan"}]
         else:
-            resp = await client.get(f"https://internetdb.shodan.io/{ip}")
-            if resp.status_code == 404:
-                return [{"ip": ip, "message": "no shodan data"}]
-            resp.raise_for_status()
-            data = resp.json()
-            return [{"ip": ip, "ports": data.get("ports", []),
-                     "hostnames": data.get("hostnames", []), "cpes": data.get("cpes", []),
-                     "vulns": data.get("vulns", []), "source": "shodan"}]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                if api_key:
+                    resp = await client.get(f"https://api.shodan.io/shodan/host/{ip}",
+                                            params={"key": api_key})
+                    if resp.status_code == 404:
+                        return [{"ip": ip, "message": "no shodan data"}]
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return [{"ip": ip, "shodan": {
+                        "ports": data.get("ports", []), "hostnames": data.get("hostnames", []),
+                        "domains": data.get("domains", []), "vulns": data.get("vulns", []),
+                        "org": data.get("org", ""), "isp": data.get("isp", ""),
+                        "asn": data.get("asn", ""), "country_name": data.get("country_name", ""),
+                        "city": data.get("city", ""), "os": data.get("os", ""),
+                        "data": data.get("data", []),
+                    }}]
+                else:
+                    resp = await client.get(f"https://internetdb.shodan.io/{ip}")
+                    if resp.status_code == 404:
+                        return [{"ip": ip, "message": "no shodan data"}]
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return [{"ip": ip, "ports": data.get("ports", []),
+                             "hostnames": data.get("hostnames", []), "cpes": data.get("cpes", []),
+                             "vulns": data.get("vulns", []), "source": "shodan"}]
+    finally:
+        if sem:
+            sem.release()
 
 
-async def abuseipdb_enrich(job: dict, pool) -> list[dict[str, Any]]:
+async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                           limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
     api_key = ""
     if not api_key:
         return [{"ip": ip, "message": "no abuseipdb api key configured"}]
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get("https://api.abuseipdb.com/api/v2/check",
-                                params={"ipAddress": ip, "maxAgeInDays": "90"},
-                                headers={"Key": api_key, "Accept": "application/json"})
-        if resp.status_code == 404:
-            return [{"ip": ip, "message": "no abuseipdb data"}]
-        resp.raise_for_status()
-        data = resp.json().get("data", {})
+    sem = limiters.abuseipdb if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get("https://api.abuseipdb.com/api/v2/check",
+                                    params={"ipAddress": ip, "maxAgeInDays": "90"},
+                                    headers={"Key": api_key, "Accept": "application/json"})
+            if resp.status_code == 404:
+                return [{"ip": ip, "message": "no abuseipdb data"}]
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get("https://api.abuseipdb.com/api/v2/check",
+                                        params={"ipAddress": ip, "maxAgeInDays": "90"},
+                                        headers={"Key": api_key, "Accept": "application/json"})
+                if resp.status_code == 404:
+                    return [{"ip": ip, "message": "no abuseipdb data"}]
+                resp.raise_for_status()
+                data = resp.json().get("data", {})
+    finally:
+        if sem:
+            sem.release()
     return [{"ip": ip, "abuseipdb": {
         "abuseConfidenceScore": data.get("abuseConfidenceScore"),
         "totalReports": data.get("totalReports"),
@@ -385,16 +535,31 @@ async def abuseipdb_enrich(job: dict, pool) -> list[dict[str, Any]]:
     }}]
 
 
-async def greynoise_enrich(job: dict, pool) -> list[dict[str, Any]]:
+async def greynoise_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                           limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
     api_key = ""
     headers = {"key": api_key} if api_key else {}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(f"https://api.greynoise.io/v3/community/{ip}", headers=headers)
-        if resp.status_code == 404:
-            return [{"ip": ip, "message": "no greynoise data"}]
-        resp.raise_for_status()
-        data = resp.json()
+    sem = limiters.greynoise if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get(f"https://api.greynoise.io/v3/community/{ip}", headers=headers)
+            if resp.status_code == 404:
+                return [{"ip": ip, "message": "no greynoise data"}]
+            resp.raise_for_status()
+            data = resp.json()
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"https://api.greynoise.io/v3/community/{ip}", headers=headers)
+                if resp.status_code == 404:
+                    return [{"ip": ip, "message": "no greynoise data"}]
+                resp.raise_for_status()
+                data = resp.json()
+    finally:
+        if sem:
+            sem.release()
     return [{"ip": ip, "greynoise": {
         "classification": data.get("classification", ""),
         "noise": data.get("noise", False), "riot": data.get("riot", False),
@@ -402,15 +567,31 @@ async def greynoise_enrich(job: dict, pool) -> list[dict[str, Any]]:
     }}]
 
 
-async def urlscan_enrich(job: dict, pool) -> list[dict[str, Any]]:
+async def urlscan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                         limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get("https://urlscan.io/api/v1/search/",
-                                params={"q": f"domain:{domain}", "size": 100})
-        if resp.status_code == 404:
-            return [{"domain": domain, "message": "no urlscan data"}]
-        resp.raise_for_status()
-        data = resp.json()
+    sem = limiters.urlscan if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get("https://urlscan.io/api/v1/search/",
+                                    params={"q": f"domain:{domain}", "size": 100})
+            if resp.status_code == 404:
+                return [{"domain": domain, "message": "no urlscan data"}]
+            resp.raise_for_status()
+            data = resp.json()
+        else:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get("https://urlscan.io/api/v1/search/",
+                                        params={"q": f"domain:{domain}", "size": 100})
+                if resp.status_code == 404:
+                    return [{"domain": domain, "message": "no urlscan data"}]
+                resp.raise_for_status()
+                data = resp.json()
+    finally:
+        if sem:
+            sem.release()
     return [{"domain": domain, "urlscan": {
         "total_results": data.get("total", 0),
         "results": [{
@@ -423,19 +604,35 @@ async def urlscan_enrich(job: dict, pool) -> list[dict[str, Any]]:
     }}]
 
 
-async def censys_enrich(job: dict, pool) -> list[dict[str, Any]]:
+async def censys_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                        limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
     api_id = api_secret = ""
     if not api_id or not api_secret:
         return [{"ip": ip, "message": "censys API credentials not configured"}]
     auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(f"https://search.censys.io/api/v2/hosts/{ip}",
-                                headers={"Authorization": f"Basic {auth}"})
-        if resp.status_code == 404:
-            return [{"ip": ip, "message": "no censys data"}]
-        resp.raise_for_status()
-        data = resp.json().get("result", {})
+    sem = limiters.censys if limiters else None
+    if sem:
+        await sem.acquire()
+    try:
+        if http_client is not None:
+            resp = await http_client.get(f"https://search.censys.io/api/v2/hosts/{ip}",
+                                    headers={"Authorization": f"Basic {auth}"})
+            if resp.status_code == 404:
+                return [{"ip": ip, "message": "no censys data"}]
+            resp.raise_for_status()
+            data = resp.json().get("result", {})
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"https://search.censys.io/api/v2/hosts/{ip}",
+                                        headers={"Authorization": f"Basic {auth}"})
+                if resp.status_code == 404:
+                    return [{"ip": ip, "message": "no censys data"}]
+                resp.raise_for_status()
+                data = resp.json().get("result", {})
+    finally:
+        if sem:
+            sem.release()
     return [{"ip": ip, "censys": {
         "services": data.get("services", []), "location": data.get("location", {}),
         "autonomous_system": data.get("autonomous_system", {}),
@@ -466,6 +663,7 @@ PIVOT_HANDLER_REGISTRY: dict[str, Any] = {
     "greynoise_enrich": greynoise_enrich,
     "urlscan_enrich": urlscan_enrich,
     "censys_enrich": censys_enrich,
+    "cpe_vuln_enrich": cpe_vuln_enrich,
 }
 
 # Source name mapping (pivot_type → source_name) for use by worker
@@ -488,4 +686,5 @@ PIVOT_SOURCE_NAMES: dict[str, str] = {
     "greynoise_enrich": "greynoise",
     "urlscan_enrich": "urlscan",
     "censys_enrich": "censys",
+    "cpe_vuln_enrich": "cpe_vuln_enrich",
 }

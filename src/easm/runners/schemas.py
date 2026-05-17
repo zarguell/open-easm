@@ -314,6 +314,7 @@ def shodan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
     return [EntityCandidate("ip", normalize_entity_value("ip", ip), {
         "source": "shodan", "ports": s.get("ports", []),
         "hostnames": s.get("hostnames", []), "domains": s.get("domains", []),
+        "cpes": [c for c in s.get("cpes", []) if isinstance(c, str)],
         "vulnerabilities": [v for v in s.get("vulns", []) if isinstance(v, str)],
         "org": s.get("org", ""), "isp": s.get("isp", ""), "asn": s.get("asn", ""),
         "country": s.get("country_name", ""), "city": s.get("city", ""),
@@ -524,7 +525,7 @@ def shodan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
     ip = raw.get("ip", "").strip()
     if not ip: return [], []
     s = raw.get("shodan", raw)
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"shodan","ports":s.get("ports",[]),"hostnames":s.get("hostnames",[]),"domains":s.get("domains",[]),"vulnerabilities":[v for v in s.get("vulns",[]) if isinstance(v,str)],"org":s.get("org",""),"isp":s.get("isp",""),"asn":s.get("asn",""),"country":s.get("country_name",""),"city":s.get("city",""),"os":s.get("os",""),"services":s.get("data",[])})], []
+    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"shodan","ports":s.get("ports",[]),"hostnames":s.get("hostnames",[]),"domains":s.get("domains",[]),"cpes":[c for c in s.get("cpes",[]) if isinstance(c,str)],"vulnerabilities":[v for v in s.get("vulns",[]) if isinstance(v,str)],"org":s.get("org",""),"isp":s.get("isp",""),"asn":s.get("asn",""),"country":s.get("country_name",""),"city":s.get("city",""),"os":s.get("os",""),"services":s.get("data",[])})], []
 
 def abuseipdb(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     ip = raw.get("ip", "").strip(); a = raw.get("abuseipdb")

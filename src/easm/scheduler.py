@@ -32,6 +32,14 @@ class Scheduler:
         import httpx
 
         async def _run_job():
+            active = await store.count_active_runs(target.id, runner_def.source_name)
+            if active > 0:
+                logger.info(
+                    "skipping scheduled run: previous run still active",
+                    extra={"target_id": target.id, "runner": runner_name, "active_runs": active},
+                )
+                return
+
             http_client = httpx.AsyncClient(timeout=30.0)
             try:
                 await execute_runner(
@@ -85,6 +93,26 @@ class Scheduler:
                 logger.warning("unknown runner %s for target %s", runner_name, target.id)
                 continue
             self._schedule_runner(target, runner_name, runners[runner_name], cfg_dict, store)
+
+    def setup_kev_refresh(self, pool: Any) -> None:
+        from easm.vuln_cache import refresh_kev_cache
+
+        async def _refresh() -> None:
+            try:
+                await refresh_kev_cache(pool)
+            except Exception:
+                logger.exception("kev refresh failed")
+
+        self._scheduler.add_job(
+            _refresh,
+            "cron",
+            id="kev-refresh",
+            day_of_week="0",
+            hour="3",
+            minute="0",
+            replace_existing=True,
+        )
+        logger.info("scheduled kev refresh job")
 
     def _parse_cron(self, schedule: str) -> dict[str, str]:
         parts = schedule.split()

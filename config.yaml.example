@@ -233,3 +233,12 @@ targets:
           to: hostname
           via: subdomain_takeover
           cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: shodan_enrich
+          cooldown_hours: 168
+        # Vulnerability enrichment (auto-triggered after tech detection)
+        - from: ip
+          to: ip
+          via: cpe_vuln_enrich
+          cooldown_hours: 24

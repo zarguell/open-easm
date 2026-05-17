@@ -322,8 +322,9 @@ async def standard_http_run(
     max_retries: int = 0,
     retry_statuses: tuple[int, ...] = (),
     inter_delay: float = 0.0,
+    max_concurrent: int = 1,
 ) -> tuple[int, int, int]:
-    """Generic HTTP runner with optional retry and rate-limiting.
+    """Generic HTTP runner with optional retry, rate-limiting, and concurrency.
 
     For each item returned by ``iterate_over(target)``:
     1. Build URL by replacing ``[item]`` in ``url_template``
@@ -335,6 +336,11 @@ async def standard_http_run(
 
     ``retry_statuses`` — HTTP status codes that trigger a retry.
     ``inter_delay`` — seconds to sleep between items (avoids rate-limiting).
+    ``max_concurrent`` — max number of in-flight HTTP requests (1 = sequential).
+
+    When ``max_concurrent > 1``, items are fetched concurrently using an
+    ``asyncio.Semaphore`` and ``asyncio.gather``.  The ``inter_delay`` is
+    ignored in the concurrent path (the semaphore controls pacing).
 
     When ``http_client`` is ``None`` a temporary client is created and
     closed automatically.
@@ -344,51 +350,104 @@ async def standard_http_run(
     inserted = deduped = errors = 0
 
     try:
-        for item in iterate_over(target):
-            url = url_template.replace("[item]", item)
+        if max_concurrent > 1:
+            # --- Concurrent path ---
+            sem = asyncio.Semaphore(max_concurrent)
 
-            try:
-                resp_text = await _http_fetch_with_retry(
-                    http, url, max_retries, retry_statuses, log,
-                )
-            except Exception as e:
-                errors += 1
-                logger.warning(
-                    "%s error for %s: %s", source_name, item, e,
-                    extra={"item": item, "target_id": target.id},
-                )
-                if inter_delay:
-                    await asyncio.sleep(inter_delay)
-                continue
+            async def _process_item(item: str) -> tuple[int, int, int]:
+                async with sem:
+                    url = url_template.replace("[item]", item)
+                    try:
+                        resp_text = await _http_fetch_with_retry(
+                            http, url, max_retries, retry_statuses, log,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "%s error for %s: %s", source_name, item, exc,
+                            extra={"item": item, "target_id": target.id},
+                        )
+                        return 0, 0, 1
 
-            if resp_text is None:
-                errors += 1
-                logger.warning(
-                    "%s returned no data for %s", source_name, item,
-                    extra={"item": item, "target_id": target.id},
-                )
-                if inter_delay:
-                    await asyncio.sleep(inter_delay)
-                continue
+                    if resp_text is None:
+                        logger.warning(
+                            "%s returned no data for %s", source_name, item,
+                            extra={"item": item, "target_id": target.id},
+                        )
+                        return 0, 0, 1
 
-            records = _parse_response_text(resp_text)
-            for record in records:
-                raw = transform_fn(record, item) if transform_fn else record
-                if raw is None:
+                    ins = ded = 0
+                    records = _parse_response_text(resp_text)
+                    for record in records:
+                        raw = transform_fn(record, item) if transform_fn else record
+                        if raw is None:
+                            continue
+                        result = await store.insert_raw_event(
+                            target.org_id, target.id, source_name, raw, run_id,
+                        )
+                        if result:
+                            ins += 1
+                            if output_schema:
+                                await _ingest_entities(
+                                    store, output_schema, raw, run_id,
+                                    target.org_id, target.id,
+                                )
+                        else:
+                            ded += 1
+                    return ins, ded, 0
+
+            items = iterate_over(target)
+            results = await asyncio.gather(*[_process_item(i) for i in items])
+            for ins, ded, err in results:
+                inserted += ins
+                deduped += ded
+                errors += err
+        else:
+            # --- Sequential path (original behaviour) ---
+            for item in iterate_over(target):
+                url = url_template.replace("[item]", item)
+
+                try:
+                    resp_text = await _http_fetch_with_retry(
+                        http, url, max_retries, retry_statuses, log,
+                    )
+                except Exception as e:
+                    errors += 1
+                    logger.warning(
+                        "%s error for %s: %s", source_name, item, e,
+                        extra={"item": item, "target_id": target.id},
+                    )
+                    if inter_delay:
+                        await asyncio.sleep(inter_delay)
                     continue
-                result = await store.insert_raw_event(
-                    target.org_id, target.id, source_name, raw, run_id,
-                )
-                if result:
-                    inserted += 1
-                    if output_schema:
-                        await _ingest_entities(store, output_schema, raw, run_id,
-                                              target.org_id, target.id)
-                else:
-                    deduped += 1
 
-            if inter_delay:
-                await asyncio.sleep(inter_delay)
+                if resp_text is None:
+                    errors += 1
+                    logger.warning(
+                        "%s returned no data for %s", source_name, item,
+                        extra={"item": item, "target_id": target.id},
+                    )
+                    if inter_delay:
+                        await asyncio.sleep(inter_delay)
+                    continue
+
+                records = _parse_response_text(resp_text)
+                for record in records:
+                    raw = transform_fn(record, item) if transform_fn else record
+                    if raw is None:
+                        continue
+                    result = await store.insert_raw_event(
+                        target.org_id, target.id, source_name, raw, run_id,
+                    )
+                    if result:
+                        inserted += 1
+                        if output_schema:
+                            await _ingest_entities(store, output_schema, raw, run_id,
+                                                  target.org_id, target.id)
+                    else:
+                        deduped += 1
+
+                if inter_delay:
+                    await asyncio.sleep(inter_delay)
     finally:
         if own_client:
             await http.aclose()

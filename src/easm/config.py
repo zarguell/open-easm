@@ -82,6 +82,7 @@ class PivotConfig(BaseModel):
     max_concurrent: int = 3
     batch_interval_ms: int = 200
     scope_mode: str = "strict"
+    max_queue_depth: int = 10000
     allowed_pivots: list[AllowedPivot] = Field(default_factory=list)
 
 
@@ -94,6 +95,7 @@ VALID_PIVOT_TYPES = {
     "abuseipdb_enrich",
     "urlscan_enrich",
     "censys_enrich", "reverse_whois", "passive_dns", "subdomain_takeover",
+    "cpe_vuln_enrich",
 }
 
 

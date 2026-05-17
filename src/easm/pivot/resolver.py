@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import tldextract
 
 from easm.models import ScopeResult
 from easm.store import Store
+
+logger = logging.getLogger(__name__)
 
 
 class PivotResolver:
@@ -29,6 +33,23 @@ class PivotResolver:
         # Skip pivots for non-org-owned entities (saas-hosted, third-party-integrated)
         classification = await self._get_classification(entity_id)
         if classification and classification != "org-owned":
+            return
+
+        max_queue_depth = getattr(pivot_config, 'max_queue_depth', 10000)
+        count = await self.pool.fetchval(
+            "SELECT COUNT(*) FROM pivot_queue WHERE status = 'pending'"
+        )
+        if count is not None and count >= max_queue_depth:
+            logger.warning(
+                "pivot queue at capacity, skipping enqueue",
+                extra={
+                    "queue_depth": count,
+                    "max": max_queue_depth,
+                    "target_id": target.id,
+                    "entity_type": entity_type,
+                    "entity_value": entity_value,
+                },
+            )
             return
 
         for pivot_rule in pivot_config.allowed_pivots:
@@ -68,6 +89,20 @@ class PivotResolver:
                 parent_entity_id=parent_entity_id,
                 discovery_session_id=discovery_session_id,
             )
+
+            # Auto-enqueue CPE→CVE enrichment after tech-detection pivots
+            if pivot_rule.via in ("shodan_enrich",) and depth + 1 <= pivot_config.max_depth:
+                await self.store.enqueue_pivot_job(
+                    org_id=target.org_id,
+                    target_id=target.id,
+                    entity_type=entity_type,
+                    entity_value=entity_value,
+                    entity_id=entity_id,
+                    pivot_type="cpe_vuln_enrich",
+                    depth=depth + 1,
+                    parent_entity_id=entity_id,
+                    discovery_session_id=discovery_session_id,
+                )
 
     async def _get_classification(self, entity_id) -> str | None:
         row = await self.pool.fetchval(

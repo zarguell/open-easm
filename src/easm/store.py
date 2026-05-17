@@ -203,6 +203,18 @@ class Store:
             "run_id": str(row["run_id"]),
         }
 
+    async def count_active_runs(self, target_id: str, source_name: str) -> int:
+        """Count runs that are still in progress for a given target and source."""
+        row = await self.pool.fetchval(
+            """
+            SELECT COUNT(*) FROM runs
+            WHERE target_id = $1 AND source = $2 AND status = 'running'
+            """,
+            target_id,
+            source_name,
+        )
+        return row or 0
+
     async def list_runs(
         self,
         target_id: str | None = None,
@@ -407,6 +419,29 @@ class Store:
             "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1", row["id"],
         )
         return dict(row)
+
+    async def dequeue_pivot_jobs_batch(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Dequeue up to ``limit`` pending pivot jobs.
+
+        Returns jobs already marked as 'running'.
+        """
+        rows = await self.pool.fetch("""
+            SELECT * FROM pivot_queue
+            WHERE status = 'pending'
+            ORDER BY enqueued_at
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        """, limit)
+        if not rows:
+            return []
+        jobs = []
+        for row in rows:
+            await self.pool.execute(
+                "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1",
+                row["id"],
+            )
+            jobs.append(dict(row))
+        return jobs
 
     async def mark_pivot_completed(self, job_id: uuid.UUID) -> None:
         await self.pool.execute(

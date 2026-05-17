@@ -161,6 +161,7 @@ async def _crtsh_run(target, store, trigger_type, run_id, log, http_client):
         max_retries=3,
         retry_statuses=(429, 502, 503, 504),
         inter_delay=1.5,
+        max_concurrent=3,
     )
 
 
