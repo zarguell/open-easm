@@ -114,6 +114,29 @@ targets:
         args:
           timeout_seconds: 300
           duckduckgo: true
+      wappalyzer:
+        enabled: false
+        schedule: "0 5 * * 1"
+        args:
+          timeout_seconds: 120
+      screenshot:
+        enabled: false
+        schedule: "0 6 * * 1"
+        args:
+          timeout_seconds: 30
+      portscan:
+        enabled: false
+        schedule: "0 3 * * 0"
+        args:
+          timeout_seconds: 600
+          ports: "22,80,443,8080,8443,3389,3306,5432,6379,27017"
+      nuclei:
+        enabled: false
+        schedule: "0 4 * * 0"
+        args:
+          timeout_seconds: 900
+          templates: "exposures,misconfigurations"
+          severity: "critical,high"
     pivot:
       enabled: true
       max_depth: 4

@@ -8,8 +8,12 @@ from easm.runners.crtsh_runner import CrtShRunner
 from easm.runners.dnstwist_runner import DnstwistRunner
 from easm.runners.github_scan_runner import GithubScanRunner
 from easm.runners.paste_monitor_runner import PasteMonitorRunner
+from easm.runners.nuclei_runner import NucleiRunner
+from easm.runners.portscan_runner import PortScanRunner
+from easm.runners.screenshot_runner import ScreenshotRunner
 from easm.runners.searchengine_runner import SearchEngineRunner
 from easm.runners.subfinder_runner import SubfinderRunner
+from easm.runners.wappalyzer_runner import WappalyzerRunner
 
 __all__ = [
     "ApiRunner", "BaseRunner",
@@ -17,6 +21,7 @@ __all__ = [
     "CrtShRunner", "DnstwistRunner", "CloudBucketRunner",
     "PasteMonitorRunner", "GithubScanRunner", "BreachMonitorRunner",
     "CommonCrawlRunner", "SearchEngineRunner",
+    "WappalyzerRunner", "ScreenshotRunner", "PortScanRunner", "NucleiRunner",
 ]
 
 RUNNER_REGISTRY = {
@@ -31,4 +36,8 @@ RUNNER_REGISTRY = {
     "breach_monitor": BreachMonitorRunner,
     "commoncrawl": CommonCrawlRunner,
     "searchengine": SearchEngineRunner,
+    "wappalyzer": WappalyzerRunner,
+    "screenshot": ScreenshotRunner,
+    "portscan": PortScanRunner,
+    "nuclei": NucleiRunner,
 }

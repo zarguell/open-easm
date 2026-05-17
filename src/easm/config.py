@@ -10,11 +10,13 @@ VALID_RUNNER_NAMES = {
     "certstream", "subfinder", "asnmap", "crtsh", "dnstwist",
     "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
+    "wappalyzer", "screenshot", "portscan", "nuclei",
 }
 SCHEDULABLE_RUNNERS = {
     "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum",
     "paste_monitor", "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
+    "wappalyzer", "screenshot", "portscan", "nuclei",
 }
 
 

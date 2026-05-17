@@ -17,12 +17,16 @@ from easm.parse.paste_monitor_parser import PasteMonitorParser
 from easm.parse.passive_dns_parser import PassiveDnsParser
 from easm.parse.reverse_dns_parser import ReverseDnsParser
 from easm.parse.reverse_whois_parser import ReverseWhoisParser
+from easm.parse.nuclei_parser import NucleiParser
+from easm.parse.portscan_parser import PortScanParser
+from easm.parse.screenshot_parser import ScreenshotParser
 from easm.parse.searchengine_parser import SearchEngineParser
 from easm.parse.shodan_parser import ShodanParser
 from easm.parse.subdomain_takeover_parser import SubdomainTakeoverParser
 from easm.parse.subfinder_parser import SubfinderParser
 from easm.parse.tls_cert_parser import TlsCertParser
 from easm.parse.urlscan_parser import UrlScanParser
+from easm.parse.wappalyzer_parser import WappalyzerParser
 
 PARSER_REGISTRY = {
     "dns_mail_records": DnsMailRecordsParser,
@@ -50,4 +54,8 @@ PARSER_REGISTRY = {
     "takeover": SubdomainTakeoverParser,
     "commoncrawl": CommonCrawlParser,
     "searchengine": SearchEngineParser,
+    "wappalyzer": WappalyzerParser,
+    "screenshot": ScreenshotParser,
+    "portscan": PortScanParser,
+    "nuclei": NucleiParser,
 }
