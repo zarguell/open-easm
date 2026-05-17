@@ -10,8 +10,13 @@ targets:
     match_rules:
       domains:
         - google.com
+        - googleapis.com
+        - googlecloud.com
+        - google-analytics.com
+        - googletagmanager.com
       keywords:
-        - Google
+        - Google LLC
+        - Google Cloud
       asns:
         - AS15169
     runners:
@@ -37,19 +42,19 @@ targets:
           timeout_seconds: 60
     pivot:
       enabled: true
-      max_depth: 4
+      max_depth: 2
       max_concurrent: 3
       batch_interval_ms: 200
-      scope_mode: permissive
+      scope_mode: strict
       allowed_pivots:
         - from: ip_range
           to: ip
           via: reverse_dns
-          cooldown_hours: 0
+          cooldown_hours: 24
         - from: hostname
           to: ip
           via: dns_resolve
-          cooldown_hours: 0
+          cooldown_hours: 24
         - from: hostname
           to: domain
           via: domain_extract
@@ -96,7 +101,7 @@ targets:
           expand_org_names: true
           timeout_seconds: 60
       certstream:
-        enabled: true
+        enabled: false
         mode: realtime
         filters:
           include_common_name: true
@@ -104,19 +109,19 @@ targets:
           match_mode: suffix
     pivot:
       enabled: true
-      max_depth: 4
+      max_depth: 2
       max_concurrent: 3
       batch_interval_ms: 200
-      scope_mode: permissive
+      scope_mode: strict
       allowed_pivots:
         - from: ip_range
           to: ip
           via: reverse_dns
-          cooldown_hours: 0
+          cooldown_hours: 24
         - from: hostname
           to: ip
           via: dns_resolve
-          cooldown_hours: 0
+          cooldown_hours: 24
         - from: hostname
           to: domain
           via: domain_extract
