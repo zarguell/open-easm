@@ -14,6 +14,9 @@ from easm.parse.geoip_parser import GeoIpParser
 from easm.parse.github_scan_parser import GithubScanParser
 from easm.parse.greynoise_parser import GreyNoiseParser
 from easm.parse.paste_monitor_parser import PasteMonitorParser
+from easm.parse.gist_monitor_parser import GistMonitorParser
+from easm.parse.stackoverflow_monitor_parser import StackOverflowParser
+from easm.parse.discord_monitor_parser import DiscordMonitorParser
 from easm.parse.passive_dns_parser import PassiveDnsParser
 from easm.parse.reverse_dns_parser import ReverseDnsParser
 from easm.parse.reverse_whois_parser import ReverseWhoisParser
@@ -44,7 +47,10 @@ PARSER_REGISTRY = {
     "abuseipdb": AbuseIpDbParser,
     "urlscan": UrlScanParser,
     "cloud_enum": CloudBucketParser,
+    "discord_monitor": DiscordMonitorParser,
+    "gist_monitor": GistMonitorParser,
     "paste_monitor": PasteMonitorParser,
+    "stackoverflow_monitor": StackOverflowParser,
     "github_scan": GithubScanParser,
     "breach_monitor": BreachMonitorParser,
     "shodan": ShodanParser,

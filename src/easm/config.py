@@ -8,13 +8,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 VALID_RUNNER_NAMES = {
     "certstream", "subfinder", "asnmap", "crtsh", "dnstwist",
-    "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
+    "cloud_enum", "paste_monitor", "gist_monitor", "stackoverflow_monitor", "discord_monitor",
+    "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
     "wappalyzer", "screenshot", "portscan", "nuclei",
 }
 SCHEDULABLE_RUNNERS = {
     "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum",
-    "paste_monitor", "github_scan", "breach_monitor",
+    "paste_monitor", "gist_monitor", "stackoverflow_monitor", "discord_monitor",
+    "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
     "wappalyzer", "screenshot", "portscan", "nuclei",
 }

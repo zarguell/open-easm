@@ -6,13 +6,16 @@ from easm.runners import (
     CloudBucketRunner,
     CommonCrawlRunner,
     CrtShRunner,
+    DiscordMonitorRunner,
     DnstwistRunner,
+    GistMonitorRunner,
     GithubScanRunner,
     NucleiRunner,
     PasteMonitorRunner,
     PortScanRunner,
     ScreenshotRunner,
     SearchEngineRunner,
+    StackOverflowMonitorRunner,
     SubfinderRunner,
     WappalyzerRunner,
     RUNNER_REGISTRY,
@@ -25,6 +28,7 @@ def test_runner_registry_has_all_runners():
         "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
         "commoncrawl", "searchengine",
         "wappalyzer", "screenshot", "portscan", "nuclei",
+        "gist_monitor", "stackoverflow_monitor", "discord_monitor",
     }
 
 
@@ -116,3 +120,27 @@ def test_searchengine_runner_class_attributes():
     assert SearchEngineRunner.supports_manual_trigger is True
     assert SearchEngineRunner.is_continuous is False
     assert SearchEngineRunner.is_api_runner is True
+
+
+def test_gist_monitor_runner_class_attributes():
+    assert GistMonitorRunner.source_name == "gist_monitor"
+    assert GistMonitorRunner.supports_schedule is True
+    assert GistMonitorRunner.supports_manual_trigger is True
+    assert GistMonitorRunner.is_continuous is False
+    assert GistMonitorRunner.is_api_runner is True
+
+
+def test_stackoverflow_monitor_runner_class_attributes():
+    assert StackOverflowMonitorRunner.source_name == "stackoverflow_monitor"
+    assert StackOverflowMonitorRunner.supports_schedule is True
+    assert StackOverflowMonitorRunner.supports_manual_trigger is True
+    assert StackOverflowMonitorRunner.is_continuous is False
+    assert StackOverflowMonitorRunner.is_api_runner is True
+
+
+def test_discord_monitor_runner_class_attributes():
+    assert DiscordMonitorRunner.source_name == "discord_monitor"
+    assert DiscordMonitorRunner.supports_schedule is True
+    assert DiscordMonitorRunner.supports_manual_trigger is True
+    assert DiscordMonitorRunner.is_continuous is False
+    assert DiscordMonitorRunner.is_api_runner is True

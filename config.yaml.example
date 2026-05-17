@@ -90,6 +90,22 @@ targets:
         sources: [pastebin]
         pastebin_api_key: "${PASTEBIN_KEY}"
         max_pastes_per_run: 100
+      gist_monitor:
+        enabled: false
+        schedule: "*/30 * * * *"
+        args:
+          timeout_seconds: 60
+          github_token: ""
+      stackoverflow_monitor:
+        enabled: false
+        schedule: "0 */2 * * *"
+        args:
+          timeout_seconds: 60
+      discord_monitor:
+        enabled: false
+        schedule: "*/15 * * * *"
+        args:
+          timeout_seconds: 30
       github_scan:
         enabled: true
         schedule: "0 */4 * * *"
@@ -103,6 +119,23 @@ targets:
         hibp_api_key: "${HIBP_API_KEY}"
         dehashed_api_key: "${DEHASHED_KEY}"
         dehashed_email: "${DEHASHED_EMAIL}"
+      gist_monitor:
+        enabled: false
+        schedule: "*/10 * * * *"
+        args:
+          timeout_seconds: 60
+          github_token: "${GITHUB_TOKEN}"
+        max_gists_per_run: 50
+      stackoverflow_monitor:
+        enabled: false
+        schedule: "0 */2 * * *"
+        args:
+          timeout_seconds: 60
+      discord_monitor:
+        enabled: false
+        schedule: "*/5 * * * *"
+        discord_token: "${DISCORD_TOKEN}"
+        channels: []
       commoncrawl:
         enabled: true
         schedule: "0 4 * * 1"
