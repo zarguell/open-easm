@@ -24,6 +24,10 @@ export interface Relationship {
   relationship_type: string
   relationship_source: string
   first_seen_at: string
+  source_entity_value: string
+  source_entity_type: string
+  target_entity_value: string
+  target_entity_type: string
 }
 
 export interface EntitiesResponse {

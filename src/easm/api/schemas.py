@@ -55,6 +55,7 @@ class RunSummary(BaseModel):
 
 class RunDetail(RunSummary):
     error_message: str | None = None
+    logs: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -87,6 +88,10 @@ class RelationshipSummary(BaseModel):
     relationship_type: str
     relationship_source: str
     first_seen_at: str
+    source_entity_value: str
+    source_entity_type: str
+    target_entity_value: str
+    target_entity_type: str
 
 
 class GraphResponse(BaseModel):

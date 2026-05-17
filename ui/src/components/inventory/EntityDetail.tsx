@@ -3,14 +3,15 @@ import { useEntity, useEntityRelationships } from '../../api/entities'
 import { EntityTypeBadge } from '../shared/Badge'
 import { Badge } from '../shared/Badge'
 import { formatDateTime } from '../../lib/format'
-import { getEntityColor } from '../../lib/entity-colors'
+import { getEntityColor, getEntityBgColor } from '../../lib/entity-colors'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface EntityDetailProps {
   entityId: string
+  onNavigate?: (entityId: string) => void
 }
 
-export const EntityDetail: FC<EntityDetailProps> = ({ entityId }) => {
+export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) => {
   const { data: entity, isLoading, error } = useEntity(entityId)
   const { data: relationshipsData } = useEntityRelationships(entityId)
   const [attributesOpen, setAttributesOpen] = useState(false)
@@ -60,27 +61,48 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId }) => {
             Relationships ({relationships.length})
           </h3>
           <div className="space-y-1">
-            {relationships.map((rel) => (
-              <div
-                key={rel.id}
-                className="flex items-center gap-2 rounded bg-canvas-soft px-3 py-2 text-xs"
-              >
-                <span
-                  className="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider"
-                  style={{
-                    backgroundColor: `${getEntityColor(rel.relationship_type)}1f`,
-                    color: getEntityColor(rel.relationship_type),
-                  }}
+            {relationships.map((rel) => {
+              const isSource = rel.source_entity_id === entityId
+              const relatedEntityId = isSource ? rel.target_entity_id : rel.source_entity_id
+              const relatedEntityValue = isSource ? rel.target_entity_value : rel.source_entity_value
+              const relatedEntityType = isSource ? rel.target_entity_type : rel.source_entity_type
+              const relatedColor = getEntityColor(relatedEntityType)
+
+              return (
+                <div
+                  key={rel.id}
+                  className="flex items-center gap-2 rounded bg-canvas-soft px-3 py-2 text-xs"
                 >
-                  {rel.relationship_type}
-                </span>
-                <span className="text-body font-mono truncate">
-                  {rel.source_entity_id === entityId
-                    ? rel.target_entity_id
-                    : rel.source_entity_id}
-                </span>
-              </div>
-            ))}
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider"
+                    style={{
+                      backgroundColor: `${getEntityColor(rel.relationship_type)}1f`,
+                      color: getEntityColor(rel.relationship_type),
+                    }}
+                  >
+                    {rel.relationship_type}
+                  </span>
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider"
+                    style={{
+                      backgroundColor: getEntityBgColor(relatedEntityType),
+                      color: relatedColor,
+                    }}
+                  >
+                    {relatedEntityType}
+                  </span>
+                  <span
+                    className={`text-body font-mono truncate ${onNavigate ? 'cursor-pointer hover:text-ink underline decoration-dotted underline-offset-2' : ''}`}
+                    onClick={onNavigate ? () => onNavigate(relatedEntityId) : undefined}
+                    role={onNavigate ? 'button' : undefined}
+                    tabIndex={onNavigate ? 0 : undefined}
+                    onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter') onNavigate(relatedEntityId) } : undefined}
+                  >
+                    {relatedEntityValue}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

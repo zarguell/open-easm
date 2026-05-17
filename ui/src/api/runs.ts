@@ -18,6 +18,7 @@ export interface RunSummary {
 
 export interface RunDetail extends RunSummary {
   error_message: string | null
+  logs: string | null
   metadata: Record<string, unknown>
 }
 

@@ -23,6 +23,10 @@ class BaseRunner(ABC):
 
     def __init__(self, store: Store) -> None:
         self.store = store
+        self._log_lines: list[str] = []
+
+    def _log(self, msg: str) -> None:
+        self._log_lines.append(msg)
 
     def get_runner_config(self, target: Any) -> dict[str, Any]:
         runner_raw = target.runners.get(self.source_name, {})
@@ -46,10 +50,17 @@ class BaseRunner(ABC):
         except TimeoutError:
             proc.kill()
             await proc.wait()
+            self._log("[stderr] timeout")
             return False, "", "timeout"
+        stdout_text = stdout.decode(errors="replace")
+        stderr_text = stderr.decode(errors="replace")
+        for line in stdout_text.splitlines():
+            self._log(f"[stdout] {line}")
+        for line in stderr_text.splitlines():
+            self._log(f"[stderr] {line}")
         if proc.returncode != 0:
-            return False, stdout.decode(errors="replace"), stderr.decode(errors="replace")
-        return True, stdout.decode(errors="replace"), ""
+            return False, stdout_text, stderr_text
+        return True, stdout_text, ""
 
     @abstractmethod
     async def run_once(
@@ -58,6 +69,7 @@ class BaseRunner(ABC):
         ...
 
     async def execute(self, target: Any, trigger_type: str) -> uuid.UUID:
+        self._log_lines = []
         run_id = await self.store.create_run(target.id, self.source_name, trigger_type, org_id=target.org_id)
         start = datetime.now(UTC)
         await self.store.mark_run_started(run_id, start)
@@ -81,6 +93,7 @@ class BaseRunner(ABC):
 
         end = datetime.now(UTC)
         duration_ms = int((end - start).total_seconds() * 1000)
+        log_text = "\n".join(self._log_lines) if self._log_lines else None
         await self.store.mark_run_finished(
             run_id,
             status,
@@ -90,6 +103,7 @@ class BaseRunner(ABC):
             deduped,
             errors,
             error_message=error_message,
+            logs=log_text,
         )
 
         # Compute run counters

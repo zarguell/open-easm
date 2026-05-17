@@ -65,6 +65,7 @@ class Store:
         error_count: int,
         error_message: str | None = None,
         metadata: dict[str, Any] | None = None,
+        logs: str | None = None,
     ) -> None:
         meta = json.dumps(metadata or {})
         await self.pool.execute(
@@ -77,8 +78,9 @@ class Store:
                 deduped_count = $5,
                 error_count = $6,
                 error_message = $7,
-                metadata = $8::jsonb
-            WHERE id = $9
+                metadata = $8::jsonb,
+                logs = $9
+            WHERE id = $10
             """,
             status,
             finished_at,
@@ -88,6 +90,7 @@ class Store:
             error_count,
             error_message,
             meta,
+            logs,
             run_id,
         )
 
@@ -244,7 +247,7 @@ class Store:
             SELECT id, target_id, source, trigger_type, status, scheduled_for,
                    started_at, finished_at, duration_ms, inserted_count,
                    deduped_count, error_count, error_message, metadata,
-                   discovery_session_id, new_entity_count, total_entity_count
+                   discovery_session_id, new_entity_count, total_entity_count, logs
             FROM runs
             {where}
             ORDER BY started_at DESC NULLS LAST
@@ -260,7 +263,7 @@ class Store:
             SELECT id, target_id, source, trigger_type, status, scheduled_for,
                    started_at, finished_at, duration_ms, inserted_count,
                    deduped_count, error_count, error_message, metadata,
-                   discovery_session_id, new_entity_count, total_entity_count
+                   discovery_session_id, new_entity_count, total_entity_count, logs
             FROM runs WHERE id = $1
             """,
             run_id,
@@ -309,4 +312,5 @@ def _row_to_run_dict(row: asyncpg.Record) -> dict[str, Any]:
             if isinstance(row["metadata"], str)
             else row["metadata"]
         ),
+        "logs": row["logs"],
     }

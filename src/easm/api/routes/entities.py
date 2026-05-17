@@ -111,11 +111,17 @@ async def get_entity(entity_id: str, store: Store = Depends(get_store)):
 @router.get("/entities/{entity_id}/relationships")
 async def get_entity_relationships(entity_id: str, store: Store = Depends(get_store)):
     rows = await store.pool.fetch(
-        """SELECT id, source_entity_id, target_entity_id, relationship_type,
-                  relationship_source, first_seen_at
-           FROM entity_relationships
-           WHERE source_entity_id = $1 OR target_entity_id = $1
-           ORDER BY first_seen_at DESC""",
+        """SELECT er.id, er.source_entity_id, er.target_entity_id,
+                  er.relationship_type, er.relationship_source, er.first_seen_at,
+                  se.entity_value AS source_entity_value,
+                  se.entity_type AS source_entity_type,
+                  te.entity_value AS target_entity_value,
+                  te.entity_type AS target_entity_type
+           FROM entity_relationships er
+           JOIN entities se ON se.id = er.source_entity_id
+           JOIN entities te ON te.id = er.target_entity_id
+           WHERE er.source_entity_id = $1 OR er.target_entity_id = $1
+           ORDER BY er.first_seen_at DESC""",
         entity_id,
     )
     return {
@@ -127,6 +133,10 @@ async def get_entity_relationships(entity_id: str, store: Store = Depends(get_st
                 "relationship_type": r["relationship_type"],
                 "relationship_source": r["relationship_source"],
                 "first_seen_at": r["first_seen_at"].isoformat(),
+                "source_entity_value": r["source_entity_value"],
+                "source_entity_type": r["source_entity_type"],
+                "target_entity_value": r["target_entity_value"],
+                "target_entity_type": r["target_entity_type"],
             }
             for r in rows
         ]

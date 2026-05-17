@@ -91,7 +91,7 @@ export function InventoryView() {
         onClose={() => setSelectedEntityId(null)}
         title="Entity Detail"
       >
-        {selectedEntityId && <EntityDetail entityId={selectedEntityId} />}
+        {selectedEntityId && <EntityDetail entityId={selectedEntityId} onNavigate={setSelectedEntityId} />}
       </SlideOver>
     </div>
   )
