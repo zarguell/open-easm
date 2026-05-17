@@ -30,6 +30,12 @@ class KeywordEngine:
             )
             self._patterns.append((pattern, domain, "domain", "high"))
 
+            email_pattern = re.compile(
+                r'[\w\.\-]+@' + escaped + r'(?=[\s:\?/;,]|$)',
+                re.IGNORECASE,
+            )
+            self._patterns.append((email_pattern, f"@{domain}", "email", "high"))
+
         for keyword in match_rules.keywords:
             escaped = re.escape(keyword)
             pattern = re.compile(

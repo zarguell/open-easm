@@ -145,3 +145,74 @@ def test_domain_match_returns_context():
     matches = engine.match("Found: internal.example.com in the codebase")
     assert len(matches) == 1
     assert "internal.example.com" in matches[0].context
+
+
+# --- Task 3: Email pattern derivation ---
+
+
+def test_email_pattern_from_domain():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Contact: admin@example.com")
+    email_matches = [m for m in matches if m.keyword_type == "email"]
+    assert len(email_matches) >= 1
+    assert "admin@example.com" in email_matches[0].matched_text
+
+
+def test_email_pattern_different_username():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Contact: zach@example.com")
+    email_matches = [m for m in matches if m.keyword_type == "email"]
+    assert len(email_matches) >= 1
+    assert "zach@example.com" in email_matches[0].matched_text
+
+
+def test_email_pattern_severity_high():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Contact: admin@example.com")
+    email_matches = [m for m in matches if m.keyword_type == "email"]
+    assert email_matches[0].severity == "high"
+
+
+def test_email_pattern_no_false_positive():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Contact: admin@example.com.phishing.org")
+    email_matches = [m for m in matches if m.keyword_type == "email"]
+    assert len(email_matches) == 0
+
+
+def test_email_and_domain_match_both_returned():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("internal.example.com and admin@example.com found")
+    types_found = {m.keyword_type for m in matches}
+    assert "domain" in types_found
+    assert "email" in types_found
