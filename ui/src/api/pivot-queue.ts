@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from './client'
 
 export interface PivotJob {
@@ -35,6 +35,15 @@ export interface PivotQueueParams {
   cursor?: string
 }
 
+export interface TriggerPivotRequest {
+  target_id: string
+  entity_type: string
+  entity_value: string
+  pivot_type: string
+  org_id?: string
+  depth?: number
+}
+
 export function usePivotQueue(params: PivotQueueParams = {}) {
   return useQuery({
     queryKey: ['pivot-queue', params],
@@ -48,5 +57,23 @@ export function usePivotQueue(params: PivotQueueParams = {}) {
       if (params.cursor) searchParams.cursor = params.cursor
       return api.get('pivot-queue', { searchParams }).json<PivotQueueResponse>()
     },
+  })
+}
+
+export function useTriggerPivot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (req: TriggerPivotRequest) =>
+      api.post('pivot-queue/trigger', { json: req }).json<{ job_id: string; status: string }>(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pivot-queue'] }),
+  })
+}
+
+export function useRetryPivot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) =>
+      api.post(`pivot-queue/${jobId}/retry`).json<{ job_id: string; status: string }>(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pivot-queue'] }),
   })
 }

@@ -1,5 +1,5 @@
 import { type FC, useState } from 'react'
-import { usePivotQueue } from '../../api/pivot-queue'
+import { usePivotQueue, useTriggerPivot, useRetryPivot } from '../../api/pivot-queue'
 import { EntityTypeBadge, Badge } from '../shared/Badge'
 import { ErrorDisplay } from '../shared/ErrorDisplay'
 import { Skeleton } from '../shared/Skeleton'
@@ -16,8 +16,19 @@ const statusVariant = (status: string): 'success' | 'error' | 'warning' | 'runni
 
 const STATUS_OPTIONS = ['', 'pending', 'running', 'completed', 'failed'] as const
 
+const PIVOT_TYPES = [
+  'dns_resolve', 'reverse_dns', 'domain_extract', 'geoip_enrich',
+  'tls_cert_grab', 'dns_mail_records', 'crtsh_search', 'subdomain_enum',
+  'subdomain_takeover', 'passive_dns', 'rdap_lookup', 'reverse_whois',
+  'domain_rdap', 'shodan_enrich', 'abuseipdb_enrich', 'greynoise_enrich',
+  'urlscan_enrich', 'censys_enrich', 'cpe_vuln_enrich',
+] as const
+
+const ENTITY_TYPES = ['asn', 'ip_range', 'ip', 'hostname', 'domain', 'certificate', 'org'] as const
+
 export const PivotQueueTable: FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [showTrigger, setShowTrigger] = useState(false)
   const { data, isLoading, isError, error, refetch } = usePivotQueue({
     status: statusFilter || undefined,
     limit: 50,
@@ -39,7 +50,18 @@ export const PivotQueueTable: FC = () => {
             {opt || 'all'}
           </button>
         ))}
+        <div className="flex-1" />
+        <button
+          onClick={() => setShowTrigger(!showTrigger)}
+          className="rounded px-3 py-1 font-mono text-[11px] tracking-wider uppercase bg-teal-600 text-white hover:bg-teal-500 transition-colors cursor-pointer"
+        >
+          {showTrigger ? 'Cancel' : 'Trigger Pivot'}
+        </button>
       </div>
+
+      {showTrigger && (
+        <TriggerForm onClose={() => setShowTrigger(false)} onSubmitted={() => { setShowTrigger(false); refetch() }} />
+      )}
 
       {isError && (
         <ErrorDisplay message={error.message} onRetry={() => refetch()} />
@@ -82,6 +104,9 @@ export const PivotQueueTable: FC = () => {
               <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-mute">
                 Completed
               </th>
+              <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-mute">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -111,11 +136,117 @@ export const PivotQueueTable: FC = () => {
                 <td className="px-4 py-2 text-sm text-body">
                   {formatRelativeTime(job.completed_at)}
                 </td>
+                <td className="px-4 py-2">
+                  {(job.status === 'failed' || job.status === 'completed') && (
+                    <RetryButton jobId={job.id} />
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
     </div>
+  )
+}
+
+const RetryButton: FC<{ jobId: string }> = ({ jobId }) => {
+  const retry = useRetryPivot()
+  return (
+    <button
+      onClick={() => retry.mutate(jobId)}
+      disabled={retry.isPending}
+      className="rounded px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase bg-canvas-soft text-mute hover:text-ink transition-colors cursor-pointer disabled:opacity-50"
+    >
+      {retry.isPending ? '...' : 'retry'}
+    </button>
+  )
+}
+
+const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onClose, onSubmitted }) => {
+  const [entityType, setEntityType] = useState('domain')
+  const [entityValue, setEntityValue] = useState('')
+  const [pivotType, setPivotType] = useState('domain_rdap')
+  const [targetId, setTargetId] = useState('')
+  const trigger = useTriggerPivot()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    trigger.mutate(
+      { target_id: targetId, entity_type: entityType, entity_value: entityValue, pivot_type: pivotType },
+      { onSuccess: onSubmitted },
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 p-3 bg-canvas-soft rounded-lg space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Target ID</label>
+          <input
+            type="text"
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            required
+            className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
+            placeholder="e.g. occ"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Entity Type</label>
+          <select
+            value={entityType}
+            onChange={(e) => setEntityType(e.target.value)}
+            className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
+          >
+            {ENTITY_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Entity Value</label>
+          <input
+            type="text"
+            value={entityValue}
+            onChange={(e) => setEntityValue(e.target.value)}
+            required
+            className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
+            placeholder="e.g. example.com"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Pivot Type</label>
+          <select
+            value={pivotType}
+            onChange={(e) => setPivotType(e.target.value)}
+            className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
+          >
+            {PIVOT_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={trigger.isPending}
+          className="rounded px-4 py-1.5 font-mono text-[11px] tracking-wider uppercase bg-teal-600 text-white hover:bg-teal-500 transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {trigger.isPending ? 'Triggering...' : 'Trigger'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded px-4 py-1.5 font-mono text-[11px] tracking-wider uppercase text-mute hover:text-ink transition-colors cursor-pointer"
+        >
+          Cancel
+        </button>
+        {trigger.isError && (
+          <span className="text-xs text-red-400">{trigger.error.message}</span>
+        )}
+      </div>
+    </form>
   )
 }

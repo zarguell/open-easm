@@ -1,11 +1,69 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import uuid
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from easm.api.deps import get_store
-from easm.store import Store
 
 router = APIRouter(prefix="/pivot-queue", tags=["pivot-queue"])
+
+
+class TriggerPivotRequest(BaseModel):
+    target_id: str
+    entity_type: str
+    entity_value: str
+    pivot_type: str
+    org_id: str = "default"
+    depth: int = 1
+
+
+@router.post("/trigger")
+async def trigger_pivot(req: TriggerPivotRequest):
+    """Manually enqueue a pivot job. The worker will pick it up on its next poll."""
+    store = get_store()
+
+    entity_row = await store.pool.fetchrow(
+        "SELECT id FROM entities "
+        "WHERE target_id = $1 AND entity_type = $2 AND entity_value = $3 "
+        "LIMIT 1",
+        req.target_id, req.entity_type, req.entity_value,
+    )
+    if not entity_row:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No entity found with type={req.entity_type} "
+                f"value={req.entity_value} for target {req.target_id}"
+            ),
+        )
+    entity_id = entity_row["id"]
+
+    job_id = await store.enqueue_pivot_job(
+        org_id=req.org_id,
+        target_id=req.target_id,
+        entity_type=req.entity_type,
+        entity_value=req.entity_value,
+        entity_id=entity_id,
+        pivot_type=req.pivot_type,
+        depth=req.depth,
+    )
+    return {"job_id": str(job_id), "status": "pending"}
+
+
+@router.post("/{job_id}/retry")
+async def retry_pivot(job_id: str):
+    """Re-queue a failed or completed pivot job."""
+    store = get_store()
+    result = await store.pool.execute(
+        "UPDATE pivot_queue SET status='pending', started_at=NULL, completed_at=NULL, "
+        "error_message=NULL WHERE id = $1::uuid AND status IN ('failed', 'completed')",
+        uuid.UUID(job_id),
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Job not found or not in a retryable state")
+    return {"job_id": job_id, "status": "pending"}
 
 
 @router.get("")
@@ -72,8 +130,12 @@ async def list_pivot_queue(
             "entity_id": str(r["entity_id"]),
             "pivot_type": r["pivot_type"],
             "depth": r["depth"],
-            "parent_entity_id": str(r["parent_entity_id"]) if r["parent_entity_id"] else None,
-            "discovery_session_id": str(r["discovery_session_id"]) if r["discovery_session_id"] else None,
+            "parent_entity_id": (
+                str(r["parent_entity_id"]) if r["parent_entity_id"] else None
+            ),
+            "discovery_session_id": (
+                str(r["discovery_session_id"]) if r["discovery_session_id"] else None
+            ),
             "status": r["status"],
             "enqueued_at": r["enqueued_at"].isoformat(),
             "started_at": r["started_at"].isoformat() if r["started_at"] else None,
