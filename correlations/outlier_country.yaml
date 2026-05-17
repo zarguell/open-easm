@@ -1,0 +1,14 @@
+id: outlier_country
+meta:
+  name: "Asset hosted in unexpected country"
+  risk: medium
+  description: >
+    An asset was found hosted in a country not typically associated with
+    the organization's infrastructure.
+collect:
+  - method: exact
+    field: entity_type
+    value: ip
+aggregation:
+  field: entity_value
+headline: "IP in potentially unexpected location: {entity_value}"

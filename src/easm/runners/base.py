@@ -29,10 +29,10 @@ class BaseRunner(ABC):
         self._log_lines.append(msg)
 
     def get_runner_config(self, target: Any) -> dict[str, Any]:
-        runner_raw = target.runners.get(self.source_name, {})
-        if isinstance(runner_raw, dict):
-            return runner_raw
-        return runner_raw.model_dump() if hasattr(runner_raw, "model_dump") else {}
+        cfg = target.runners.get(self.source_name)
+        if cfg is None:
+            return {}
+        return cfg.model_dump() if hasattr(cfg, "model_dump") else {}
 
     async def _exec_subprocess(
         self, cmd: list[str], *, timeout: int = 300

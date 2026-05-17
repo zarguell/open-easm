@@ -8,8 +8,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from easm.api.routes import alerts as alerts_route
 from easm.api.routes import config as config_route
-from easm.api.routes import entities, events, graph, health, pivot_queue, runs, targets
+from easm.api.routes import entities, events, findings as findings_route, graph, health, pivot_queue, runs, targets
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ def create_app() -> FastAPI:
     app.include_router(graph.router, prefix="/api")
     app.include_router(config_route.router, prefix="/api")
     app.include_router(pivot_queue.router, prefix="/api")
+    app.include_router(findings_route.router, prefix="/api")
+    app.include_router(alerts_route.router, prefix="/api")
 
     # Serve React SPA from ui/dist (production only)
     import os

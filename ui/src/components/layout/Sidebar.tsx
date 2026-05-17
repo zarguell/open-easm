@@ -6,6 +6,8 @@ import {
   Play,
   Target,
   Globe,
+  Settings,
+  Bell,
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
@@ -25,6 +27,8 @@ const navItems = [
   { icon: Share2, label: "Graph Explorer", path: "/graph" },
   { icon: Play, label: "Runs", path: "/runs" },
   { icon: Target, label: "Targets & Pivots", path: "/targets" },
+  { icon: Settings, label: "Config", path: "/config" },
+  { icon: Bell, label: "Alerts", path: "/alerts" },
   { icon: Globe, label: "Geo Map", path: "/geo" },
 ] as const;
 

@@ -3,12 +3,13 @@ from __future__ import annotations
 import tldextract
 
 from easm.models import ScopeResult
-from easm.pivot_store import enqueue_pivot_job
+from easm.store import Store
 
 
 class PivotResolver:
     def __init__(self, pool):
         self.pool = pool
+        self.store = Store(pool)
 
     async def check_and_enqueue(
         self, target, entity_type, entity_value, entity_id,
@@ -23,6 +24,11 @@ class PivotResolver:
         from easm.pivot.scope import ScopeEvaluator
         scope = ScopeEvaluator().evaluate(target, entity_type, entity_value)
         if scope == ScopeResult.OUT_OF_SCOPE and pivot_config.scope_mode == "strict":
+            return
+
+        # Skip pivots for non-org-owned entities (saas-hosted, third-party-integrated)
+        classification = await self._get_classification(entity_id)
+        if classification and classification != "org-owned":
             return
 
         for pivot_rule in pivot_config.allowed_pivots:
@@ -51,8 +57,7 @@ class PivotResolver:
                 if recent:
                     continue
 
-            await enqueue_pivot_job(
-                self.pool,
+            await self.store.enqueue_pivot_job(
                 org_id=target.org_id,
                 target_id=target.id,
                 entity_type=entity_type,
@@ -63,6 +68,13 @@ class PivotResolver:
                 parent_entity_id=parent_entity_id,
                 discovery_session_id=discovery_session_id,
             )
+
+    async def _get_classification(self, entity_id) -> str | None:
+        row = await self.pool.fetchval(
+            "SELECT attributes->>'asset_classification' FROM entities WHERE id = $1",
+            entity_id,
+        )
+        return row
 
     async def _check_apex_coverage(self, org_id, apex, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""

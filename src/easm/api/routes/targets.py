@@ -18,7 +18,7 @@ async def list_targets() -> list[TargetSummary]:
     for target in config.targets:
         runner_info: dict[str, Any] = {}
         for name, cfg in target.runners.items():
-            cfg_dict = cfg if isinstance(cfg, dict) else cfg.model_dump()
+            cfg_dict = cfg.model_dump()
             info: dict[str, Any] = {
                 "enabled": cfg_dict.get("enabled", False),
                 "schedule": cfg_dict.get("schedule"),
@@ -46,13 +46,10 @@ async def get_target(target_id: str) -> TargetDetail:
     config = get_config()
     for target in config.targets:
         if target.id == target_id:
-            match_rules = (
-                target.match_rules.model_dump()
-                if hasattr(target.match_rules, "model_dump") else {}
-            )
+            match_rules = target.match_rules.model_dump()
             runners = {}
             for name, cfg in target.runners.items():
-                runners[name] = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg
+                runners[name] = cfg.model_dump()
             return TargetDetail(
                 id=target.id,
                 name=target.name,

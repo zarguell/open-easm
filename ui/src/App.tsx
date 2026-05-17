@@ -5,6 +5,8 @@ import { InventoryView } from "./components/inventory/InventoryView";
 import { GraphView } from "./components/graph/GraphView";
 import { RunsView } from "./components/runs/RunsView";
 import { TargetsView } from "./components/targets/TargetsView";
+import { ConfigEditorView } from "./components/config/ConfigEditorView";
+import { AlertsView } from "./components/alerts/AlertsView";
 import { GeoMap } from "./components/GeoMap";
 
 export function App() {
@@ -16,6 +18,8 @@ export function App() {
         <Route path="graph" element={<GraphView />} />
         <Route path="runs" element={<RunsView />} />
         <Route path="targets" element={<TargetsView />} />
+        <Route path="config" element={<ConfigEditorView />} />
+        <Route path="alerts" element={<AlertsView />} />
         <Route path="geo" element={<GeoMap />} />
       </Route>
     </Routes>

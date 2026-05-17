@@ -1,3 +1,34 @@
+saas_providers:
+  rules:
+    - pattern: "*.amazonaws.com"
+      provider: aws
+      classification: saas-hosted
+    - pattern: "*.cloudfront.net"
+      provider: aws
+      classification: saas-hosted
+    - pattern: "*.azurewebsites.net"
+      provider: azure
+      classification: saas-hosted
+    - pattern: "*.googleapis.com"
+      provider: gcp
+      classification: saas-hosted
+    - pattern: "*.herokuapp.com"
+      provider: heroku
+      classification: saas-hosted
+
+alerts:
+  rules:
+    - name: "No dev/test public"
+      description: "Dev or test systems exposed on public internet"
+      enabled: true
+      condition: "hostname matches *(dev|test|staging)*.yourorg.com"
+      severity: high
+    - name: "Risky ports"
+      description: "Database or admin ports publicly exposed"
+      enabled: true
+      condition: "port in [22, 3389, 5432, 6379, 9200, 27017]"
+      severity: high
+
 targets:
   - id: corp-primary
     name: Example Corp Primary
@@ -16,6 +47,16 @@ targets:
         - Example
       asns:
         - AS12345
+      keyword_patterns:
+        - type: email
+          pattern: "@example\\.com"
+          severity: high
+        - type: api_key
+          pattern: "AKIA[0-9A-Z]{16}"
+          severity: high
+        - type: hostname
+          pattern: "internal\\.example\\.com"
+          severity: high
     runners:
       certstream:
         enabled: true
@@ -37,6 +78,98 @@ targets:
         args:
           expand_org_names: true
           timeout_seconds: 300
+      cloud_enum:
+        enabled: true
+        schedule: "0 8 * * 1"
+        args:
+          timeout_seconds: 600
+          concurrency: 20
+      paste_monitor:
+        enabled: true
+        schedule: "*/5 * * * *"
+        sources: [pastebin]
+        pastebin_api_key: "${PASTEBIN_KEY}"
+        max_pastes_per_run: 100
+      gist_monitor:
+        enabled: false
+        schedule: "*/30 * * * *"
+        args:
+          timeout_seconds: 60
+          github_token: ""
+      stackoverflow_monitor:
+        enabled: false
+        schedule: "0 */2 * * *"
+        args:
+          timeout_seconds: 60
+      discord_monitor:
+        enabled: false
+        schedule: "*/15 * * * *"
+        args:
+          timeout_seconds: 30
+      github_scan:
+        enabled: true
+        schedule: "0 */4 * * *"
+        github_token: "${GITHUB_TOKEN}"
+        gitleaks_path: gitleaks
+        search_queries: [credential_patterns, domain_matches]
+      breach_monitor:
+        enabled: true
+        schedule: "0 6 * * *"
+        sources: [hibp, dehashed]
+        hibp_api_key: "${HIBP_API_KEY}"
+        dehashed_api_key: "${DEHASHED_KEY}"
+        dehashed_email: "${DEHASHED_EMAIL}"
+      gist_monitor:
+        enabled: false
+        schedule: "*/10 * * * *"
+        args:
+          timeout_seconds: 60
+          github_token: "${GITHUB_TOKEN}"
+        max_gists_per_run: 50
+      stackoverflow_monitor:
+        enabled: false
+        schedule: "0 */2 * * *"
+        args:
+          timeout_seconds: 60
+      discord_monitor:
+        enabled: false
+        schedule: "*/5 * * * *"
+        discord_token: "${DISCORD_TOKEN}"
+        channels: []
+      commoncrawl:
+        enabled: true
+        schedule: "0 4 * * 1"
+        args:
+          timeout_seconds: 600
+      searchengine:
+        enabled: true
+        schedule: "0 6 * * *"
+        args:
+          timeout_seconds: 300
+          duckduckgo: true
+      wappalyzer:
+        enabled: false
+        schedule: "0 5 * * 1"
+        args:
+          timeout_seconds: 120
+      screenshot:
+        enabled: false
+        schedule: "0 6 * * 1"
+        args:
+          timeout_seconds: 30
+      portscan:
+        enabled: false
+        schedule: "0 3 * * 0"
+        args:
+          timeout_seconds: 600
+          ports: "22,80,443,8080,8443,3389,3306,5432,6379,27017"
+      nuclei:
+        enabled: false
+        schedule: "0 4 * * 0"
+        args:
+          timeout_seconds: 900
+          templates: "exposures,misconfigurations"
+          severity: "critical,high"
     pivot:
       enabled: true
       max_depth: 4
@@ -69,4 +202,34 @@ targets:
         - from: ip
           to: ip
           via: geoip_enrich
+          cooldown_hours: 168
+        # Threat intel enrichment pivots
+        - from: ip
+          to: ip
+          via: greynoise_enrich
+          cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: abuseipdb_enrich
+          cooldown_hours: 168
+        - from: domain
+          to: domain
+          via: urlscan_enrich
+          cooldown_hours: 168
+        # Deep enrichment pivots
+        - from: ip
+          to: ip
+          via: censys_enrich
+          cooldown_hours: 168
+        - from: domain
+          to: domain
+          via: reverse_whois
+          cooldown_hours: 168
+        - from: domain
+          to: ip
+          via: passive_dns
+          cooldown_hours: 168
+        - from: hostname
+          to: hostname
+          via: subdomain_takeover
           cooldown_hours: 168

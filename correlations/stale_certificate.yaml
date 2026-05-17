@@ -1,0 +1,19 @@
+id: stale_certificate
+meta:
+  name: "Stale or expiring TLS certificate"
+  risk: medium
+  description: >
+    A TLS certificate was found that is expired or expiring within
+    30 days, increasing the risk of service disruption.
+collect:
+  - method: exact
+    field: entity_type
+    value: certificate
+  - method: regex
+    field: entity_value
+    patterns:
+      - ".*expired.*"
+      - ".*expiring.*"
+aggregation:
+  field: entity_value
+headline: "Stale certificate found: {entity_value}"

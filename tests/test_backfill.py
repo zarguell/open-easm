@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from easm.backfill import backfill_worker
+from easm.config import Config, TargetConfig, SaasProviderConfig, SaasProviderRule
 
 
 @pytest_asyncio.fixture
@@ -84,3 +85,96 @@ async def test_backfill_asnmap_creates_entity_and_relationship(db_pool, sample_r
     rels = await db_pool.fetch("SELECT * FROM entity_relationships")
     assert len(rels) == 1
     assert rels[0]["relationship_type"] == "owns"
+
+
+@pytest_asyncio.fixture
+async def classify_run(db_pool):
+    run_id = uuid.uuid7()
+    await db_pool.execute(
+        "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",
+        run_id, "test-target", "subfinder", "manual", "running",
+    )
+    return run_id
+
+
+@pytest.mark.asyncio
+async def test_backfill_classifies_org_owned_entity(db_pool, classify_run):
+    """Entity matching a target domain should be classified as org-owned."""
+    event_id = uuid.uuid7()
+    await db_pool.execute(
+        "INSERT INTO raw_events (id, org_id, target_id, source, raw, event_hash, run_id) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+        event_id, "default", "test-target", "subfinder",
+        json.dumps({"host": "app.prod.test-corp.com"}),
+        "hash-classify-org", classify_run,
+    )
+
+    cfg = Config(
+        targets=[
+            TargetConfig(
+                id="test-target", name="Test", type="org",
+                match_rules={"domains": ["test-corp.com"]},
+                runners={},
+                pivot={"enabled": False},
+            ),
+        ],
+        saas_providers=SaasProviderConfig(rules=[
+            SaasProviderRule(pattern="*.amazonaws.com", provider="aws", classification="saas-hosted"),
+        ]),
+    )
+
+    task = asyncio.create_task(backfill_worker(db_pool, cfg, batch_size=100, batch_interval_ms=50))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    row = await db_pool.fetchrow(
+        "SELECT attributes FROM entities WHERE entity_value = 'app.prod.test-corp.com'"
+    )
+    assert row is not None
+    attrs = json.loads(row["attributes"]) if isinstance(row["attributes"], str) else row["attributes"]
+    assert attrs.get("asset_classification") == "org-owned"
+
+
+@pytest.mark.asyncio
+async def test_backfill_classifies_saas_hosted_entity(db_pool, classify_run):
+    """Entity matching a SaaS provider pattern should be classified as saas-hosted."""
+    event_id = uuid.uuid7()
+    await db_pool.execute(
+        "INSERT INTO raw_events (id, org_id, target_id, source, raw, event_hash, run_id) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+        event_id, "default", "test-target", "subfinder",
+        json.dumps({"host": "d3adb33f.cloudfront.net"}),
+        "hash-classify-saas", classify_run,
+    )
+
+    cfg = Config(
+        targets=[
+            TargetConfig(
+                id="test-target", name="Test", type="org",
+                match_rules={"domains": ["test-corp.com"]},
+                runners={},
+                pivot={"enabled": False},
+            ),
+        ],
+        saas_providers=SaasProviderConfig(rules=[
+            SaasProviderRule(pattern="*.cloudfront.net", provider="aws", classification="saas-hosted"),
+        ]),
+    )
+
+    task = asyncio.create_task(backfill_worker(db_pool, cfg, batch_size=100, batch_interval_ms=50))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    row = await db_pool.fetchrow(
+        "SELECT attributes FROM entities WHERE entity_value = 'd3adb33f.cloudfront.net'"
+    )
+    assert row is not None
+    attrs = json.loads(row["attributes"]) if isinstance(row["attributes"], str) else row["attributes"]
+    assert attrs.get("asset_classification") == "saas-hosted"
+    assert attrs.get("provider") == "aws"
