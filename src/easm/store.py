@@ -8,6 +8,9 @@ from typing import Any, cast
 
 import asyncpg
 
+from easm.correlation.rule import Finding
+from easm.entity_store import deep_merge_attributes, normalize_entity_value
+
 
 def _canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
@@ -285,6 +288,252 @@ class Store:
             json.dumps(raw_config),
         )
 
+    # ── Entity methods ────────────────────────────────────────────────
+
+    async def upsert_entity(
+        self,
+        org_id: str,
+        target_id: str,
+        entity_type: str,
+        entity_value: str,
+        new_attributes: dict,
+        raw_event_id: uuid.UUID,
+        discovery_session_id: uuid.UUID | None = None,
+        discovery_run_id: uuid.UUID | None = None,
+        discovery_pivot_id: uuid.UUID | None = None,
+    ) -> tuple[uuid.UUID, bool]:
+        normalized_value = normalize_entity_value(entity_type, entity_value)
+
+        existing = await self.pool.fetchrow(
+            """
+            SELECT id, attributes FROM entities
+            WHERE org_id = $1 AND target_id = $2 AND entity_type = $3 AND entity_value = $4
+            """,
+            org_id, target_id, entity_type, normalized_value,
+        )
+
+        if existing:
+            existing_attrs = existing["attributes"]
+            if isinstance(existing_attrs, str):
+                existing_attrs = json.loads(existing_attrs)
+            merged = deep_merge_attributes(existing_attrs, new_attributes)
+            await self.pool.execute(
+                "UPDATE entities SET last_seen_at = NOW(), attributes = $1::jsonb WHERE id = $2",
+                json.dumps(merged), existing["id"],
+            )
+            await self.pool.execute(
+                "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                existing["id"], raw_event_id,
+            )
+            return existing["id"], False
+        else:
+            entity_id = await self.pool.fetchval(
+                """
+                INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
+                                      first_seen_at, last_seen_at, is_first_discovery,
+                                      discovery_session_id, discovery_run_id, discovery_pivot_id)
+                VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
+                RETURNING id
+                """,
+                org_id, target_id, entity_type, normalized_value,
+                json.dumps(new_attributes),
+                discovery_session_id, discovery_run_id, discovery_pivot_id,
+            )
+            await self.pool.execute(
+                "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2)",
+                entity_id, raw_event_id,
+            )
+            return entity_id, True
+
+    async def upsert_relationship(
+        self,
+        org_id: str,
+        source_entity_id: uuid.UUID,
+        target_entity_id: uuid.UUID,
+        relationship_type: str,
+        relationship_source: str,
+        evidence_raw_event_id: uuid.UUID | None = None,
+        runner: str | None = None,
+    ) -> None:
+        await self.pool.execute(
+            """
+            INSERT INTO entity_relationships (org_id, source_entity_id, target_entity_id,
+                                             relationship_type, relationship_source,
+                                             evidence_raw_event_id, runner)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (org_id, source_entity_id, target_entity_id, relationship_type)
+            DO UPDATE SET last_seen_at = NOW()
+            """,
+            org_id, source_entity_id, target_entity_id,
+            relationship_type, relationship_source,
+            evidence_raw_event_id, runner,
+        )
+
+    # ── Pivot methods ─────────────────────────────────────────────────
+
+    async def enqueue_pivot_job(
+        self,
+        org_id: str,
+        target_id: str,
+        entity_type: str,
+        entity_value: str,
+        entity_id: uuid.UUID,
+        pivot_type: str,
+        depth: int,
+        parent_entity_id: uuid.UUID | None = None,
+        discovery_session_id: uuid.UUID | None = None,
+        run_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        row = await self.pool.fetchrow("""
+            INSERT INTO pivot_queue (org_id, target_id, entity_type, entity_value, entity_id,
+                                      pivot_type, depth, parent_entity_id, discovery_session_id, run_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id
+        """, org_id, target_id, entity_type, entity_value, entity_id,
+            pivot_type, depth, parent_entity_id, discovery_session_id, run_id)
+        return row["id"]
+
+    async def dequeue_pivot_job(self) -> dict[str, Any] | None:
+        row = await self.pool.fetchrow("""
+            SELECT * FROM pivot_queue
+            WHERE status = 'pending'
+            ORDER BY enqueued_at
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        """)
+        if not row:
+            return None
+        await self.pool.execute(
+            "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1", row["id"],
+        )
+        return dict(row)
+
+    async def mark_pivot_completed(self, job_id: uuid.UUID) -> None:
+        await self.pool.execute(
+            "UPDATE pivot_queue SET status='completed', completed_at=NOW() WHERE id=$1", job_id,
+        )
+
+    async def mark_pivot_failed(self, job_id: uuid.UUID, error: str) -> None:
+        await self.pool.execute(
+            "UPDATE pivot_queue SET status='failed', completed_at=NOW(), error_message=$2 WHERE id=$1",
+            job_id, error,
+        )
+
+    async def reset_orphaned_pivot_jobs(self) -> None:
+        await self.pool.execute(
+            "UPDATE pivot_queue SET status='pending' WHERE status='running'",
+        )
+
+    # ── Finding methods ───────────────────────────────────────────────
+
+    async def create_finding(self, finding: Finding) -> uuid.UUID:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO findings (org_id, target_id, rule_id, risk, headline, description,
+                                  entity_ids, evidence, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9)
+            RETURNING id
+            """,
+            finding.org_id,
+            finding.target_id,
+            finding.rule_id,
+            finding.risk.value if hasattr(finding.risk, "value") else finding.risk,
+            finding.headline,
+            finding.description,
+            [uuid.UUID(eid) for eid in finding.entity_ids],
+            json.dumps(finding.evidence),
+            finding.status,
+        )
+        assert row is not None
+        return cast(uuid.UUID, row["id"])
+
+    async def list_findings(
+        self,
+        target_id: str | None = None,
+        risk: str | None = None,
+        status: str | None = None,
+        rule_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if risk:
+            idx += 1
+            conditions.append(f"risk = ${idx}")
+            params.append(risk)
+        if status:
+            idx += 1
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+        if rule_id:
+            idx += 1
+            conditions.append(f"rule_id = ${idx}")
+            params.append(rule_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        idx += 1
+        idx += 1
+        query = f"""
+            SELECT id, org_id, target_id, rule_id, risk, headline, description,
+                   entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+            FROM findings
+            {where}
+            ORDER BY risk DESC, created_at DESC
+            LIMIT ${idx - 1} OFFSET ${idx}
+        """
+        params.extend([limit, offset])
+        rows = await self.pool.fetch(query, *params)
+        return [_row_to_finding_dict(r) for r in rows]
+
+    async def get_finding(self, finding_id: uuid.UUID) -> dict[str, Any] | None:
+        row = await self.pool.fetchrow(
+            """SELECT id, org_id, target_id, rule_id, risk, headline, description,
+                      entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+               FROM findings WHERE id = $1""",
+            finding_id,
+        )
+        if row is None:
+            return None
+        return _row_to_finding_dict(row)
+
+    async def update_finding_status(self, finding_id: uuid.UUID, status: str) -> None:
+        await self.pool.execute(
+            "UPDATE findings SET status = $1, last_seen_at = NOW() WHERE id = $2",
+            status,
+            finding_id,
+        )
+
+    async def acknowledge_finding(self, finding_id: uuid.UUID) -> None:
+        await self.update_finding_status(finding_id, "acknowledged")
+
+
+def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    return {
+        "id": str(row["id"]),
+        "org_id": row["org_id"],
+        "target_id": row["target_id"],
+        "rule_id": row["rule_id"],
+        "risk": row["risk"],
+        "headline": row["headline"],
+        "description": row["description"],
+        "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
+        "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
+        "status": row["status"],
+        "first_seen_at": _fmt(row["first_seen_at"]),
+        "last_seen_at": _fmt(row["last_seen_at"]),
+        "created_at": _fmt(row["created_at"]),
+    }
+
 
 def _row_to_run_dict(row: asyncpg.Record) -> dict[str, Any]:
     def _fmt(dt: datetime | None) -> str | None:
@@ -313,4 +562,25 @@ def _row_to_run_dict(row: asyncpg.Record) -> dict[str, Any]:
             else row["metadata"]
         ),
         "logs": row["logs"],
+    }
+
+
+def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    return {
+        "id": str(row["id"]),
+        "org_id": row["org_id"],
+        "target_id": row["target_id"],
+        "rule_id": row["rule_id"],
+        "risk": row["risk"],
+        "headline": row["headline"],
+        "description": row["description"],
+        "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
+        "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
+        "status": row["status"],
+        "first_seen_at": _fmt(row["first_seen_at"]),
+        "last_seen_at": _fmt(row["last_seen_at"]),
+        "created_at": _fmt(row["created_at"]),
     }

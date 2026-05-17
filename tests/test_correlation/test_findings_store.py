@@ -4,17 +4,17 @@ import uuid
 
 import pytest
 
-from easm.correlation.findings_store import FindingsStore
 from easm.correlation.rule import Finding
+from easm.store import Store
 
 
 @pytest.fixture
 def store(db_pool):
-    return FindingsStore(db_pool)
+    return Store(db_pool)
 
 
 @pytest.mark.asyncio
-async def test_create_finding(store: FindingsStore):
+async def test_create_finding(store: Store):
     f = Finding(
         org_id="default",
         target_id="test-target",
@@ -31,7 +31,7 @@ async def test_create_finding(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_create_finding_minimal(store: FindingsStore):
+async def test_create_finding_minimal(store: Store):
     f = Finding(
         org_id="default",
         target_id="test-target",
@@ -45,13 +45,13 @@ async def test_create_finding_minimal(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_list_findings_empty(store: FindingsStore):
+async def test_list_findings_empty(store: Store):
     results = await store.list_findings(target_id="test-target")
     assert results == []
 
 
 @pytest.mark.asyncio
-async def test_list_findings_with_data(store: FindingsStore):
+async def test_list_findings_with_data(store: Store):
     f1 = Finding(org_id="default", target_id="test-target", rule_id="rule_a", risk="high", headline="Finding A", entity_ids=[])
     f2 = Finding(org_id="default", target_id="test-target", rule_id="rule_b", risk="low", headline="Finding B", entity_ids=[])
     await store.create_finding(f1)
@@ -62,7 +62,7 @@ async def test_list_findings_with_data(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_list_findings_filter_by_risk(store: FindingsStore):
+async def test_list_findings_filter_by_risk(store: Store):
     f1 = Finding(org_id="default", target_id="test-target", rule_id="rule_a", risk="high", headline="High", entity_ids=[])
     f2 = Finding(org_id="default", target_id="test-target", rule_id="rule_b", risk="low", headline="Low", entity_ids=[])
     await store.create_finding(f1)
@@ -74,7 +74,7 @@ async def test_list_findings_filter_by_risk(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_list_findings_filter_by_status(store: FindingsStore):
+async def test_list_findings_filter_by_status(store: Store):
     f1 = Finding(org_id="default", target_id="test-target", rule_id="rule_a", risk="high", headline="Open", entity_ids=[])
     f2 = Finding(org_id="default", target_id="test-target", rule_id="rule_b", risk="low", headline="Resolved", entity_ids=[], status="resolved")
     await store.create_finding(f1)
@@ -86,7 +86,7 @@ async def test_list_findings_filter_by_status(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_list_findings_filter_by_rule_id(store: FindingsStore):
+async def test_list_findings_filter_by_rule_id(store: Store):
     f1 = Finding(org_id="default", target_id="test-target", rule_id="rule_a", risk="high", headline="A", entity_ids=[])
     f2 = Finding(org_id="default", target_id="test-target", rule_id="rule_b", risk="low", headline="B", entity_ids=[])
     await store.create_finding(f1)
@@ -98,7 +98,7 @@ async def test_list_findings_filter_by_rule_id(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_get_finding(store: FindingsStore):
+async def test_get_finding(store: Store):
     f = Finding(org_id="default", target_id="test-target", rule_id="test_rule", risk="medium", headline="Get me", entity_ids=[])
     finding_id = await store.create_finding(f)
 
@@ -110,13 +110,13 @@ async def test_get_finding(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_get_finding_not_found(store: FindingsStore):
+async def test_get_finding_not_found(store: Store):
     result = await store.get_finding(uuid.UUID("00000000-0000-0000-0000-000000000000"))
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_update_finding_status(store: FindingsStore):
+async def test_update_finding_status(store: Store):
     f = Finding(org_id="default", target_id="test-target", rule_id="test_rule", risk="high", headline="Update me", entity_ids=[])
     finding_id = await store.create_finding(f)
 
@@ -127,7 +127,7 @@ async def test_update_finding_status(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_update_finding_status_resolved(store: FindingsStore):
+async def test_update_finding_status_resolved(store: Store):
     f = Finding(org_id="default", target_id="test-target", rule_id="test_rule", risk="high", headline="Resolve me", entity_ids=[])
     finding_id = await store.create_finding(f)
 
@@ -137,7 +137,7 @@ async def test_update_finding_status_resolved(store: FindingsStore):
 
 
 @pytest.mark.asyncio
-async def test_finding_has_timestamps(store: FindingsStore):
+async def test_finding_has_timestamps(store: Store):
     f = Finding(org_id="default", target_id="test-target", rule_id="test_rule", risk="info", headline="Timestamp test", entity_ids=[])
     finding_id = await store.create_finding(f)
 

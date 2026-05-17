@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 from easm.correlation.engine import CorrelationEngine
-from easm.correlation.findings_store import FindingsStore
 from easm.correlation.loader import load_rules_from_dir
 from easm.correlation.rule import RiskLevel
+from easm.store import Store
 
 CORRELATIONS_DIR = Path(__file__).parent.parent.parent / "correlations"
 
@@ -19,8 +19,8 @@ def engine(db_pool) -> CorrelationEngine:
 
 
 @pytest.fixture
-def findings_store(db_pool) -> FindingsStore:
-    return FindingsStore(db_pool)
+def findings_store(db_pool) -> Store:
+    return Store(db_pool)
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ async def test_rules_load_and_validate(loaded_rules):
 
 
 @pytest.mark.asyncio
-async def test_full_pipeline_integration(engine: CorrelationEngine, findings_store: FindingsStore, db_pool):
+async def test_full_pipeline_integration(engine: CorrelationEngine, findings_store: Store, db_pool):
     run_id = uuid.uuid7()
     event_id = uuid.uuid7()
     async with db_pool.acquire() as conn:

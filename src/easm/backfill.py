@@ -7,9 +7,10 @@ from typing import Any
 
 from easm.classify import classify_entity
 from easm.config import Config
-from easm.entity_store import normalize_entity_value, upsert_entity, upsert_relationship
+from easm.entity_store import normalize_entity_value
 from easm.parse import PARSER_REGISTRY
 from easm.pivot.resolver import PivotResolver
+from easm.store import Store
 
 
 async def backfill_worker(
@@ -18,6 +19,7 @@ async def backfill_worker(
     batch_size: int = 100,
     batch_interval_ms: int = 500,
 ):
+    store = Store(pool)
     resolver = PivotResolver(pool)
     target_map = {t.id: t for t in cfg.targets} if cfg else {}
 
@@ -77,8 +79,7 @@ async def backfill_worker(
             target = target_map.get(row["target_id"])
 
             for entity_cand in result.entities:
-                entity_id, is_new = await upsert_entity(
-                    pool,
+                entity_id, is_new = await store.upsert_entity(
                     org_id=row["org_id"],
                     target_id=row["target_id"],
                     entity_type=entity_cand.entity_type,
@@ -124,8 +125,7 @@ async def backfill_worker(
                     row["org_id"], row["target_id"], rel_cand.target_type, tgt_norm,
                 )
                 if src_row and tgt_row:
-                    await upsert_relationship(
-                        pool,
+                    await store.upsert_relationship(
                         org_id=row["org_id"],
                         source_entity_id=src_row["id"],
                         target_entity_id=tgt_row["id"],

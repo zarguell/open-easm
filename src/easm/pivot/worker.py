@@ -6,34 +6,26 @@ import logging
 from pathlib import Path
 
 from easm.correlation.engine import CorrelationEngine
-from easm.correlation.findings_store import FindingsStore
 from easm.correlation.loader import load_rules_from_dir
 from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY, PIVOT_SOURCE_NAMES
-from easm.pivot_store import (
-    dequeue_pivot_job,
-    mark_pivot_completed,
-    mark_pivot_failed,
-    reset_orphaned_pivot_jobs,
-)
-from easm.store import _compute_event_hash
+from easm.store import Store, _compute_event_hash
 
 logger = logging.getLogger(__name__)
 
 CORRELATIONS_DIR = Path(__file__).parent.parent.parent / "correlations"
 
 
-async def _run_correlation(pool, org_id: str, target_id: str) -> None:
+async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
     try:
         if not CORRELATIONS_DIR.exists():
             return
         rules = load_rules_from_dir(CORRELATIONS_DIR)
         if not rules:
             return
-        engine = CorrelationEngine(pool)
+        engine = CorrelationEngine(store.pool)
         findings = await engine.evaluate_rules(rules, org_id, target_id)
         if not findings:
             return
-        store = FindingsStore(pool)
         for f in findings:
             try:
                 await store.create_finding(f)
@@ -44,16 +36,17 @@ async def _run_correlation(pool, org_id: str, target_id: str) -> None:
 
 
 async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
-    await reset_orphaned_pivot_jobs(pool)
+    store = Store(pool)
+    await store.reset_orphaned_pivot_jobs()
 
     async def worker_loop():
         while True:
-            job = await dequeue_pivot_job(pool)
+            job = await store.dequeue_pivot_job()
             if job:
                 try:
                     handler_fn = PIVOT_HANDLER_REGISTRY.get(job["pivot_type"])
                     if not handler_fn:
-                        await mark_pivot_failed(pool, job["id"], "no handler for pivot type")
+                        await store.mark_pivot_failed(job["id"], "no handler for pivot type")
                         continue
 
                     results = await handler_fn(job, pool)
@@ -83,14 +76,14 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                             job["org_id"], job["target_id"], source_name,
                             raw_json, event_hash, job["run_id"],
                         )
-                    await mark_pivot_completed(pool, job["id"])
-                    await _run_correlation(pool, job["org_id"], job["target_id"])
+                    await store.mark_pivot_completed(job["id"])
+                    await _run_correlation(store, job["org_id"], job["target_id"])
                 except Exception:
                     logger.exception(
                         "pivot job failed: job_id=%s pivot_type=%s entity_value=%s",
                         str(job["id"]), job["pivot_type"], job["entity_value"],
                     )
-                    await mark_pivot_failed(pool, job["id"], "see logs")
+                    await store.mark_pivot_failed(job["id"], "see logs")
             else:
                 await asyncio.sleep(batch_interval_ms / 1000)
 

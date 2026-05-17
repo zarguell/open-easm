@@ -8,7 +8,6 @@ from httpx import ASGITransport, AsyncClient
 from easm.api import deps
 from easm.api.app import create_app
 from easm.config import Config, TargetConfig, MatchRules
-from easm.correlation.findings_store import FindingsStore
 from easm.correlation.rule import Finding
 from easm.store import Store
 
@@ -40,7 +39,7 @@ async def test_api(test_config, db_pool, scheduler):
 
 @pytest.fixture
 async def seed_finding(db_pool) -> str:
-    store = FindingsStore(db_pool)
+    store = Store(db_pool)
     f = Finding(
         org_id="default",
         target_id="test-target",
