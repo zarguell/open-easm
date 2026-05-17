@@ -60,3 +60,88 @@ def test_keyword_engine_class_attributes():
     engine = KeywordEngine(target)
     assert hasattr(engine, "match")
     assert callable(engine.match)
+
+
+# --- Task 2: Domain-based keyword derivation ---
+
+
+def test_domain_keyword_matches_apex():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Visit https://example.com today!")
+    assert len(matches) >= 1
+    domain_matches = [m for m in matches if m.keyword_type == "domain"]
+    assert any("example.com" in m.matched_text for m in domain_matches)
+
+
+def test_domain_keyword_matches_subdomain():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Internal server: git.internal.example.com")
+    assert len(matches) >= 1
+    domain_matches = [m for m in matches if m.keyword_type == "domain"]
+    assert any("internal.example.com" in m.matched_text for m in domain_matches)
+
+
+def test_domain_keyword_no_false_positive():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Visit https://malicious-example.com.phishing.com!")
+    domain_matches = [m for m in matches if m.keyword_type == "domain"]
+    assert len(domain_matches) == 0
+
+
+def test_multiple_domains_all_matched():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com", "example.org"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Connect to api.example.com and mail.example.org")
+    assert len(matches) >= 2
+    matched_texts = {m.matched_text for m in matches}
+    assert "api.example.com" in matched_texts
+    assert "mail.example.org" in matched_texts
+
+
+def test_domain_match_severity_is_high():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Found: internal.example.com")
+    assert matches[0].severity == "high"
+    assert matches[0].keyword_type == "domain"
+
+
+def test_domain_match_returns_context():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Found: internal.example.com in the codebase")
+    assert len(matches) == 1
+    assert "internal.example.com" in matches[0].context
