@@ -234,10 +234,10 @@ def test_custom_regex_pattern_matches():
         runners={},
     )
     engine = KeywordEngine(target)
-    matches = engine.match("Found key: AKIA1234567890ABCD in log")
+    matches = engine.match("Found key: AKIA1234567890ABCDEF in log")
     regex_matches = [m for m in matches if m.keyword_type == "api_key"]
     assert len(regex_matches) == 1
-    assert "AKIA1234567890ABCD" in regex_matches[0].matched_text
+    assert "AKIA1234567890ABCDEF" in regex_matches[0].matched_text
 
 
 def test_custom_regex_multiple_matches():
