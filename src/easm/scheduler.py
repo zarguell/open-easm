@@ -11,12 +11,56 @@ logger = logging.getLogger(__name__)
 class Scheduler:
     def __init__(self) -> None:
         self._scheduler = AsyncIOScheduler()
-        self._runner_registry: dict[str, type] = {}
 
-    def register_runner(self, name: str, runner_cls: type) -> None:
-        self._runner_registry[name] = runner_cls
+    def _schedule_runner(
+        self,
+        target: Any,
+        runner_name: str,
+        runner_def: Any,  # RunnerDef
+        cfg_dict: dict[str, Any],
+        store: Any,
+    ) -> None:
+        """Schedule a single runner for a target. Shared by setup_jobs and add_jobs_for_target."""
+        if not runner_def.supports_schedule:
+            return
+        schedule = cfg_dict.get("schedule", "0 0 * * *")
+        job_id = f"{target.id}-{runner_name}"
+        if self._scheduler.get_job(job_id) is not None:
+            return
+
+        from easm.runners.engine import execute_runner
+        import httpx
+
+        async def _run_job():
+            http_client = httpx.AsyncClient(timeout=30.0)
+            try:
+                await execute_runner(
+                    runner_def.source_name,
+                    runner_def.run_fn,
+                    target,
+                    store,
+                    "scheduled",
+                    http_client=http_client,
+                )
+            finally:
+                await http_client.aclose()
+
+        self._scheduler.add_job(
+            _run_job,
+            "cron",
+            id=job_id,
+            **self._parse_cron(schedule),
+            replace_existing=True,
+        )
+        logger.info(
+            "scheduled job",
+            extra={"job_id": job_id, "schedule": schedule, "target_id": target.id},
+        )
 
     def setup_jobs(self, config: Any, store: Any) -> None:
+        from easm.runners import get_all_runners
+        runners = get_all_runners()
+
         for target in config.targets:
             if not target.enabled:
                 continue
@@ -24,30 +68,23 @@ class Scheduler:
                 cfg_dict = runner_cfg.model_dump()
                 if not cfg_dict.get("enabled", False):
                     continue
-                if runner_name not in self._runner_registry:
+                if runner_name not in runners:
                     logger.warning("unknown runner %s for target %s", runner_name, target.id)
                     continue
+                self._schedule_runner(target, runner_name, runners[runner_name], cfg_dict, store)
 
-                runner_cls = self._runner_registry[runner_name]
+    def add_jobs_for_target(self, target: Any, _registry: Any = None, store: Any = None) -> None:
+        from easm.runners import get_all_runners
+        runners = get_all_runners()
 
-                if getattr(runner_cls, "supports_schedule", False):
-                    schedule = cfg_dict.get("schedule", "0 0 * * *")
-                    job_id = f"{target.id}-{runner_name}"
-                    existing = self._scheduler.get_job(job_id)
-                    if existing is None:
-                        runner = runner_cls(store)
-                        self._scheduler.add_job(
-                            runner.execute,
-                            "cron",
-                            args=[target, "scheduled"],
-                            id=job_id,
-                            **self._parse_cron(schedule),
-                            replace_existing=True,
-                        )
-                        logger.info(
-                            "scheduled job",
-                            extra={"job_id": job_id, "schedule": schedule, "target_id": target.id},
-                        )
+        for runner_name, runner_cfg in target.runners.items():
+            cfg_dict = runner_cfg.model_dump()
+            if not cfg_dict.get("enabled", False):
+                continue
+            if runner_name not in runners:
+                logger.warning("unknown runner %s for target %s", runner_name, target.id)
+                continue
+            self._schedule_runner(target, runner_name, runners[runner_name], cfg_dict, store)
 
     def _parse_cron(self, schedule: str) -> dict[str, str]:
         parts = schedule.split()
@@ -77,35 +114,6 @@ class Scheduler:
             if job.id.startswith(prefix):
                 self._scheduler.remove_job(job.id)
                 logger.info("removed job", extra={"job_id": job.id, "target_id": target_id})
-
-    def add_jobs_for_target(self, target: Any, runner_registry: dict[str, type], store: Any = None) -> None:
-        for runner_name, runner_cfg in target.runners.items():
-            cfg_dict = runner_cfg if isinstance(runner_cfg, dict) else runner_cfg.model_dump()
-            if not cfg_dict.get("enabled", False):
-                continue
-            if runner_name not in runner_registry:
-                logger.warning("unknown runner %s for target %s", runner_name, target.id)
-                continue
-
-            runner_cls = runner_registry[runner_name]
-            if getattr(runner_cls, "supports_schedule", False):
-                schedule = cfg_dict.get("schedule", "0 0 * * *")
-                job_id = f"{target.id}-{runner_name}"
-                existing = self._scheduler.get_job(job_id)
-                if existing is None:
-                    runner = runner_cls(store)  # type: ignore[arg-type]
-                    self._scheduler.add_job(
-                        runner.execute,
-                        "cron",
-                        args=[target, "scheduled"],
-                        id=job_id,
-                        **self._parse_cron(schedule),
-                        replace_existing=True,
-                    )
-                    logger.info(
-                        "scheduled job",
-                        extra={"job_id": job_id, "schedule": schedule, "target_id": target.id},
-                    )
 
     def get_running_jobs(self) -> list[Any]:
         jobs = self._scheduler.get_jobs()

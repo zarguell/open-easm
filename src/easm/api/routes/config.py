@@ -10,8 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from easm.api.deps import get_config, get_scheduler, get_store, set_config
 from easm.api.schemas import ConfigSnapshot
 from easm.config import Config, load_config
-from easm.config import Config as ConfigModel
-from easm.runners import RUNNER_REGISTRY
 from easm.scheduler import Scheduler
 from easm.store import Store
 
@@ -37,7 +35,7 @@ async def update_config(
             current[key] = body[key]
 
     try:
-        new_config = ConfigModel.model_validate(current)
+        new_config = Config.model_validate(current)
     except Exception as e:
         raise HTTPException(
             status_code=422,
@@ -89,7 +87,7 @@ async def reload_config(
 
     for target in new_config.targets:
         if target.id in added:
-            scheduler.add_jobs_for_target(target, RUNNER_REGISTRY, store)
+            scheduler.add_jobs_for_target(target, store=store)
 
     raw = yaml.safe_load(open("config.yaml"))
     await store.save_config_snapshot(raw)

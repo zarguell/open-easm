@@ -17,7 +17,6 @@ from easm.backfill import backfill_worker
 from easm.config import load_config
 from easm.db import close_pool, create_pool
 from easm.pivot.worker import pivot_worker_pool
-from easm.runners import RUNNER_REGISTRY
 from easm.scheduler import Scheduler
 from easm.store import Store
 
@@ -83,8 +82,6 @@ async def main() -> None:
             logger.warning("binary not found", extra={"name": name, "error": info.get("error")})
 
     scheduler = Scheduler()
-    for name, cls in RUNNER_REGISTRY.items():
-        scheduler.register_runner(name, cls)
 
     set_config(config)
     set_store(store)
@@ -96,17 +93,16 @@ async def main() -> None:
     app = create_app()
 
     for target in config.targets:
-        runner_raw = target.runners.get("certstream")
-        if runner_raw:
-            cfg_dict = runner_raw if isinstance(runner_raw, dict) else runner_raw.model_dump()
-            if cfg_dict.get("enabled", False):
-                certstream_runner_cls = RUNNER_REGISTRY["certstream"]
-                cert_runner = certstream_runner_cls(store)  # type: ignore[abstract]
-                asyncio.create_task(
-                    cert_runner.execute(target, "stream"),
-                    name=f"certstream-{target.id}",
-                )
-                logger.info("started certstream", target_id=target.id)
+        runner_cfg = target.runners.get("certstream")
+        if runner_cfg and runner_cfg.enabled:
+            from easm.runners import get_all_runners
+            from easm.runners.engine import execute_runner
+            cert_def = get_all_runners()["certstream"]
+            asyncio.create_task(
+                execute_runner("certstream", cert_def.run_fn, target, store, "stream"),
+                name=f"certstream-{target.id}",
+            )
+            logger.info("started certstream", target_id=target.id)
 
     backfill_task = asyncio.create_task(backfill_worker(pool, config, batch_size=100, batch_interval_ms=500))
     logger.info("started backfill worker")

@@ -82,10 +82,13 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
             detail={"error": "disabled", "detail": f"Runner '{runner}' is disabled for target"},
         )
 
-    from easm.runners import RUNNER_REGISTRY
+    from easm.runners import get_all_runners
+    from easm.runners.engine import execute_runner
+    import httpx
 
-    runner_cls = RUNNER_REGISTRY.get(runner)
-    if runner_cls is None or not runner_cls.supports_manual_trigger:
+    runners = get_all_runners()
+    runner_def = runners.get(runner)
+    if runner_def is None or not runner_def.supports_manual_trigger:
         raise HTTPException(
             status_code=400,
             detail={
@@ -94,8 +97,14 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
             },
         )
 
-    runner_instance = runner_cls(store)  # type: ignore[abstract]
-    run_id = await runner_instance.execute(target, "manual")
+    http_client = httpx.AsyncClient(timeout=30.0)
+    try:
+        run_id = await execute_runner(
+            runner_def.source_name, runner_def.run_fn, target, store,
+            "manual", http_client=http_client,
+        )
+    finally:
+        await http_client.aclose()
     return RunTriggerResponse(
         run_id=str(run_id),
         status="accepted",
