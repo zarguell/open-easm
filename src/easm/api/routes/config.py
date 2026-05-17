@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from easm.api.deps import get_config, get_scheduler, get_store, set_config
 from easm.api.schemas import ConfigSnapshot
-from easm.config import Config as ConfigModel
 from easm.config import Config, load_config
+from easm.config import Config as ConfigModel
 from easm.runners import RUNNER_REGISTRY
 from easm.scheduler import Scheduler
 from easm.store import Store

@@ -3,7 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from easm.api import deps
 from easm.api.app import create_app
-from easm.config import AlertRule, AlertsConfig, Config, TargetConfig
+from easm.config import AlertRule, AlertsConfig, Config
 from easm.store import Store
 
 
@@ -25,19 +25,13 @@ def alert_config():
     )
 
 
-@pytest.fixture
-async def alerts_client(alert_config, db_pool):
+@pytest.mark.asyncio
+async def test_list_alert_rules(alert_config):
     app = create_app()
     deps.set_config(alert_config)
-    deps.set_store(Store(db_pool))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-
-
-@pytest.mark.asyncio
-async def test_list_alert_rules(alerts_client):
-    resp = await alerts_client.get("/api/alerts/rules")
+        resp = await client.get("/api/alerts/rules")
     assert resp.status_code == 200
     rules = resp.json()
     assert len(rules) == 2
@@ -49,7 +43,12 @@ async def test_list_alert_rules(alerts_client):
 
 
 @pytest.mark.asyncio
-async def test_alert_feed_empty(alerts_client):
-    resp = await alerts_client.get("/api/alerts/feed")
+async def test_alert_feed_empty(alert_config, db_pool):
+    app = create_app()
+    deps.set_config(alert_config)
+    deps.set_store(Store(db_pool))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/alerts/feed")
     assert resp.status_code == 200
     assert resp.json() == []
