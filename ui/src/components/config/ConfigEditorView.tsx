@@ -287,14 +287,29 @@ export function ConfigEditorView() {
                                 value={String(cfg.schedule ?? '')}
                                 onChange={(v) => updateRunnerField(idx, name, 'schedule', v)}
                               />
-                              <Field
-                                label="Mode / Args"
-                                value={String(cfg.mode ?? cfg.args ?? '')}
-                                onChange={(v) => {
-                                  const key = cfg.mode !== undefined ? 'mode' : 'args'
-                                  updateRunnerField(idx, name, key, v)
-                                }}
-                              />
+                              {cfg.mode !== undefined ? (
+                                <Field
+                                  label="Mode"
+                                  value={String(cfg.mode ?? '')}
+                                  onChange={(v) => updateRunnerField(idx, name, 'mode', v)}
+                                />
+                              ) : (
+                                <Field
+                                  label="Args (JSON)"
+                                  value={
+                                    cfg.args && typeof cfg.args === 'object'
+                                      ? JSON.stringify(cfg.args, null, 2)
+                                      : String(cfg.args ?? '')
+                                  }
+                                  onChange={(v) => {
+                                    try {
+                                      updateRunnerField(idx, name, 'args', JSON.parse(v))
+                                    } catch {
+                                      updateRunnerField(idx, name, 'args', v)
+                                    }
+                                  }}
+                                />
+                              )}
                             </div>
                           </div>
                         ))}
