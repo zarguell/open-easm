@@ -5,6 +5,7 @@ import json
 import uuid
 from typing import Any
 
+from easm.classify import classify_entity
 from easm.config import Config
 from easm.entity_store import normalize_entity_value, upsert_entity, upsert_relationship
 from easm.parse import PARSER_REGISTRY
@@ -73,6 +74,7 @@ async def backfill_worker(
                     discovery_pivot_id = None
 
             new_entities: list[tuple[str, str, uuid.UUID]] = []
+            target = target_map.get(row["target_id"])
 
             for entity_cand in result.entities:
                 entity_id, is_new = await upsert_entity(
@@ -88,6 +90,27 @@ async def backfill_worker(
                     discovery_pivot_id=discovery_pivot_id,
                 )
                 new_entities.append((entity_cand.entity_type, entity_cand.value, entity_id))
+
+                # Classify entity (org-owned vs saas-hosted)
+                classification = classify_entity(
+                    entity_type=entity_cand.entity_type,
+                    entity_value=entity_cand.value,
+                    target_domains=target.match_rules.domains if target else None,
+                    saas_rules=cfg.saas_providers if cfg else None,
+                )
+                await pool.execute(
+                    """UPDATE entities
+                       SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{asset_classification}', $1::jsonb)
+                       WHERE id = $2""",
+                    json.dumps(classification.classification), entity_id,
+                )
+                if classification.provider:
+                    await pool.execute(
+                        """UPDATE entities
+                           SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{provider}', $1::jsonb)
+                           WHERE id = $2""",
+                        json.dumps(classification.provider), entity_id,
+                    )
 
             for rel_cand in result.relationships:
                 src_norm = normalize_entity_value(rel_cand.source_type, rel_cand.source_value)
@@ -113,7 +136,6 @@ async def backfill_worker(
                     )
 
             # Trigger pivot resolver per target
-            target = target_map.get(row["target_id"])
             if target and hasattr(target, 'pivot') and target.pivot.enabled:
                 for (etype, evalue, eid) in new_entities:
                     session_id_val = uuid.UUID(session_id) if session_id else None
