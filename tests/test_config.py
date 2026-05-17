@@ -104,3 +104,79 @@ def test_optional_match_rules_fields(tmp_path: Path):
     config = load_config(cfg)
     assert config.targets[0].match_rules.keywords == []
     assert config.targets[0].match_rules.asns == []
+
+
+from easm.config import SaasProviderRule, SaasProviderConfig
+
+
+def test_saas_provider_rule_valid():
+    rule = SaasProviderRule(
+        pattern="*.amazonaws.com",
+        provider="aws",
+        classification="saas-hosted",
+    )
+    assert rule.pattern == "*.amazonaws.com"
+    assert rule.provider == "aws"
+    assert rule.classification == "saas-hosted"
+
+
+def test_saas_provider_rule_rejects_invalid_classification():
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        SaasProviderRule(
+            pattern="*.foo.com",
+            provider="unknown",
+            classification="invalid_value",
+        )
+
+
+def test_saas_provider_config_default_empty():
+    cfg = SaasProviderConfig()
+    assert cfg.rules == []
+
+
+def test_saas_provider_config_from_list():
+    cfg = SaasProviderConfig(
+        rules=[
+            {"pattern": "*.amazonaws.com", "provider": "aws", "classification": "saas-hosted"},
+        ]
+    )
+    assert len(cfg.rules) == 1
+
+
+def test_saas_providers_parsed_from_yaml(tmp_path):
+    from easm.config import load_config
+    import yaml
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.dump({
+        "targets": [{
+            "id": "t", "name": "T", "type": "org", "enabled": True,
+            "match_rules": {"domains": ["example.com"]},
+            "runners": {},
+        }],
+        "saas_providers": {
+            "rules": [
+                {"pattern": "*.amazonaws.com", "provider": "aws", "classification": "saas-hosted"},
+                {"pattern": "*.cloudfront.net", "provider": "aws", "classification": "saas-hosted"},
+            ],
+        },
+    }))
+    config = load_config(path)
+    assert len(config.saas_providers.rules) == 2
+    assert config.saas_providers.rules[0].provider == "aws"
+
+
+def test_saas_providers_optional(tmp_path):
+    from easm.config import load_config
+    import yaml
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.dump({
+        "targets": [{
+            "id": "t", "name": "T", "type": "org", "enabled": True,
+            "match_rules": {"domains": ["example.com"]},
+            "runners": {},
+        }],
+    }))
+    config = load_config(path)
+    assert len(config.saas_providers.rules) == 0

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -121,8 +121,22 @@ class TargetConfig(BaseModel):
         return v
 
 
+ClassificationType = Literal["saas-hosted", "org-owned", "third-party-integrated"]
+
+
+class SaasProviderRule(BaseModel):
+    pattern: str
+    provider: str
+    classification: ClassificationType
+
+
+class SaasProviderConfig(BaseModel):
+    rules: list[SaasProviderRule] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     targets: list[TargetConfig]
+    saas_providers: SaasProviderConfig = Field(default_factory=SaasProviderConfig)
 
     @model_validator(mode="after")
     def validate_targets(self) -> Config:
