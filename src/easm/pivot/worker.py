@@ -8,7 +8,7 @@ from pathlib import Path
 from easm.correlation.engine import CorrelationEngine
 from easm.correlation.findings_store import FindingsStore
 from easm.correlation.loader import load_rules_from_dir
-from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY
+from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY, PIVOT_SOURCE_NAMES
 from easm.pivot_store import (
     dequeue_pivot_job,
     mark_pivot_completed,
@@ -51,13 +51,13 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
             job = await dequeue_pivot_job(pool)
             if job:
                 try:
-                    handler_cls = PIVOT_HANDLER_REGISTRY.get(job["pivot_type"])
-                    if not handler_cls:
+                    handler_fn = PIVOT_HANDLER_REGISTRY.get(job["pivot_type"])
+                    if not handler_fn:
                         await mark_pivot_failed(pool, job["id"], "no handler for pivot type")
                         continue
 
-                    handler = handler_cls()
-                    results = await handler.execute(job, pool)
+                    results = await handler_fn(job, pool)
+                    source_name = PIVOT_SOURCE_NAMES.get(job["pivot_type"], job["pivot_type"])
 
                     for raw_result in results:
                         meta = {
@@ -72,7 +72,7 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                             **raw_result,
                         }
                         event_hash = _compute_event_hash(
-                            job["org_id"], job["target_id"], handler.source_name, meta,
+                            job["org_id"], job["target_id"], source_name, meta,
                         )
                         raw_json = json.dumps(meta)
                         await pool.execute(
@@ -80,7 +80,7 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                                (org_id, target_id, source, raw, event_hash, run_id)
                                VALUES ($1, $2, $3, $4::jsonb, $5, $6)
                                ON CONFLICT (event_hash) DO NOTHING""",
-                            job["org_id"], job["target_id"], handler.source_name,
+                            job["org_id"], job["target_id"], source_name,
                             raw_json, event_hash, job["run_id"],
                         )
                     await mark_pivot_completed(pool, job["id"])
