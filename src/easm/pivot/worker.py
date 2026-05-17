@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 CORRELATIONS_DIR = Path(__file__).parent.parent.parent / "correlations"
 
+MAX_TRANSIENT_RETRIES = 3
+
 
 async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
     try:
@@ -102,6 +104,30 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                                 raw_json, event_hash, run_id,
                             )
                         await store.mark_pivot_completed(job["id"])
+                    except httpx.TransportError:
+                        logger.exception(
+                            "pivot transient error, will retry: "
+                            "job_id=%s pivot_type=%s entity_value=%s",
+                            str(job["id"]), job["pivot_type"], job["entity_value"],
+                        )
+                        err = job.get("error_message") or ""
+                        retry_count = 0
+                        if err.startswith("transient_error|"):
+                            try:
+                                retry_count = int(err.split("|")[1])
+                            except (ValueError, IndexError):
+                                retry_count = 0
+                        if retry_count < MAX_TRANSIENT_RETRIES:
+                            await pool.execute(
+                                "UPDATE pivot_queue SET status='pending', enqueued_at=NOW(), "
+                                "error_message=$2 WHERE id=$1",
+                                job["id"], f"transient_error|{retry_count + 1}",
+                            )
+                        else:
+                            await store.mark_pivot_failed(
+                                job["id"],
+                                f"permanent: transport error after {retry_count} retries",
+                            )
                     except Exception:
                         logger.exception(
                             "pivot job failed: job_id=%s pivot_type=%s entity_value=%s",
