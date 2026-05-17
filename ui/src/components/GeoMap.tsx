@@ -7,7 +7,7 @@ interface IpEntity {
   id: string;
   entity_type: string;
   entity_value: string;
-  attributes: {
+  attributes: string | {
     geo?: {
       city?: string;
       country_code?: string;
@@ -17,6 +17,13 @@ interface IpEntity {
     };
     [key: string]: unknown;
   };
+}
+
+function getGeoAttrs(entity: IpEntity) {
+  const attrs = typeof entity.attributes === "string"
+    ? JSON.parse(entity.attributes)
+    : entity.attributes;
+  return attrs.geo;
 }
 
 export function GeoMap() {
@@ -30,7 +37,7 @@ export function GeoMap() {
     async function fetchIps() {
       try {
         const resp = await ky
-          .get("/api/entities", { searchParams: { type: "ip", limit: "500" } })
+          .get("/api/entities", { searchParams: { entity_type: "ip", limit: "500" } })
           .json<{ entities: IpEntity[] }>();
         setIps(resp.entities);
       } catch (e) {
@@ -77,7 +84,7 @@ export function GeoMap() {
 
     const map = mapRef.current;
     const geoIps = ips.filter(
-      (ip) => ip.attributes.geo?.latitude && ip.attributes.geo?.longitude
+      (ip) => getGeoAttrs(ip)?.latitude && getGeoAttrs(ip)?.longitude
     );
 
     if (geoIps.length === 0) return;
@@ -85,7 +92,7 @@ export function GeoMap() {
     const bounds = new maplibregl.LngLatBounds();
 
     for (const ip of geoIps) {
-      const { latitude, longitude, city, country_name } = ip.attributes.geo!;
+      const { latitude, longitude, city, country_name } = getGeoAttrs(ip)!;
       const lngLat = new maplibregl.LngLat(longitude!, latitude!);
 
       const popup = new maplibregl.Popup({ offset: 25 }).setHTML(
@@ -111,7 +118,7 @@ export function GeoMap() {
       <div className="flex items-center justify-between px-4 py-3 border-b border-hairline">
         <h1 className="text-lg font-semibold text-ink">Geo Map</h1>
         <span className="text-sm text-mute">
-          {loading ? "Loading..." : `${ips.filter((ip) => ip.attributes.geo?.latitude).length} IPs located`}
+          {loading ? "Loading..." : `${ips.filter((ip) => getGeoAttrs(ip)?.latitude).length} IPs located`}
         </span>
       </div>
       {error && (

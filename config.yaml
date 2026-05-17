@@ -35,6 +35,47 @@ targets:
         args:
           expand_org_names: true
           timeout_seconds: 60
+    pivot:
+      enabled: true
+      max_depth: 4
+      max_concurrent: 3
+      batch_interval_ms: 200
+      scope_mode: permissive
+      allowed_pivots:
+        - from: ip_range
+          to: ip
+          via: reverse_dns
+          cooldown_hours: 0
+        - from: hostname
+          to: ip
+          via: dns_resolve
+          cooldown_hours: 0
+        - from: hostname
+          to: domain
+          via: domain_extract
+          cooldown_hours: 24
+        - from: domain
+          to: certificate
+          via: crtsh_search
+          cooldown_hours: 24
+          coverage:
+            apex_covers_subdomains: true
+        - from: domain
+          to: domain
+          via: dns_mail_records
+          cooldown_hours: 24
+        - from: hostname
+          to: certificate
+          via: tls_cert_grab
+          cooldown_hours: 24
+        - from: domain
+          to: domain
+          via: domain_rdap
+          cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: geoip_enrich
+          cooldown_hours: 168
 
   - id: netnod
     name: Netnod
@@ -45,8 +86,8 @@ targets:
       owner: security
       criticality: high
     match_rules:
-      asns:
-        - AS50563
+        asns:
+          - AS50563
     runners:
       asnmap:
         enabled: true
@@ -86,3 +127,19 @@ targets:
           cooldown_hours: 24
           coverage:
             apex_covers_subdomains: true
+        - from: domain
+          to: domain
+          via: dns_mail_records
+          cooldown_hours: 24
+        - from: hostname
+          to: certificate
+          via: tls_cert_grab
+          cooldown_hours: 24
+        - from: domain
+          to: domain
+          via: domain_rdap
+          cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: geoip_enrich
+          cooldown_hours: 168
