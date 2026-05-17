@@ -297,3 +297,65 @@ def test_custom_regex_custom_severity():
     assert hostname_matches[0].severity == "high"
     assert len(debug_matches) == 1
     assert debug_matches[0].severity == "low"
+
+
+# --- Task 5: Severity classification ---
+
+
+def test_severity_high_for_domain_match():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("secret.example.com exposed!")
+    assert all(m.severity == "high" for m in matches)
+
+
+def test_severity_medium_for_keyword_match():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"keywords": ["Example Corp"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Found reference to Example Corp in log")
+    assert all(m.severity == "medium" for m in matches)
+
+
+def test_severity_override_from_custom_pattern():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "keyword_patterns": [
+                {"type": "critical_alert", "pattern": "CRITICAL:", "severity": "high"},
+                {"type": "info_alert", "pattern": "INFO:", "severity": "low"},
+            ],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("CRITICAL: system failure\nINFO: all good")
+    critical = [m for m in matches if m.keyword_type == "critical_alert"]
+    info = [m for m in matches if m.keyword_type == "info_alert"]
+    assert len(critical) == 1
+    assert critical[0].severity == "high"
+    assert len(info) == 1
+    assert info[0].severity == "low"
+
+
+def test_severity_email_is_high():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("admin@example.com exposed")
+    email_matches = [m for m in matches if m.keyword_type == "email"]
+    assert email_matches[0].severity == "high"
