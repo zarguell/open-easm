@@ -16,6 +16,19 @@ saas_providers:
       provider: heroku
       classification: saas-hosted
 
+alerts:
+  rules:
+    - name: "No dev/test public"
+      description: "Dev or test systems exposed on public internet"
+      enabled: true
+      condition: "hostname matches *(dev|test|staging)*.yourorg.com"
+      severity: high
+    - name: "Risky ports"
+      description: "Database or admin ports publicly exposed"
+      enabled: true
+      condition: "port in [22, 3389, 5432, 6379, 9200, 27017]"
+      severity: high
+
 targets:
   - id: corp-primary
     name: Example Corp Primary

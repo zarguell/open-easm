@@ -187,9 +187,29 @@ class SaasProviderConfig(BaseModel):
     rules: list[SaasProviderRule] = Field(default_factory=list)
 
 
+class AlertRule(BaseModel):
+    name: str
+    description: str = ""
+    enabled: bool = True
+    condition: str
+    severity: str = "medium"
+
+    @field_validator("severity")
+    @classmethod
+    def severity_valid(cls, v: str) -> str:
+        if v not in ("high", "medium", "low"):
+            raise ValueError("severity must be high, medium, or low")
+        return v
+
+
+class AlertsConfig(BaseModel):
+    rules: list[AlertRule] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     targets: list[TargetConfig]
     saas_providers: SaasProviderConfig = Field(default_factory=SaasProviderConfig)
+    alerts: AlertsConfig = Field(default_factory=AlertsConfig)
 
     @model_validator(mode="after")
     def validate_targets(self) -> Config:
