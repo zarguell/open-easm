@@ -180,3 +180,74 @@ def test_saas_providers_optional(tmp_path):
     }))
     config = load_config(path)
     assert len(config.saas_providers.rules) == 0
+
+
+from easm.config import KeywordPattern
+
+
+def test_keyword_pattern_valid():
+    kp = KeywordPattern(type="email", pattern="@example\\.com", severity="high")
+    assert kp.type == "email"
+    assert kp.pattern == "@example\\.com"
+    assert kp.severity == "high"
+
+
+def test_keyword_pattern_severity_default():
+    kp = KeywordPattern(type="custom", pattern="AKIA[A-Z0-9]{16}")
+    assert kp.severity == "medium"
+
+
+def test_keyword_pattern_rejects_invalid_severity():
+    from pydantic import ValidationError
+    import pytest
+    with pytest.raises(ValidationError):
+        KeywordPattern(type="custom", pattern="test", severity="critical")
+
+
+def test_match_rules_can_include_keyword_patterns():
+    from easm.config import MatchRules
+    rules = MatchRules(
+        domains=["example.com"],
+        keyword_patterns=[
+            {"type": "api_key", "pattern": "AKIA[0-9A-Z]{16}", "severity": "high"},
+            {"type": "hostname", "pattern": "internal\\.example\\.com", "severity": "high"},
+        ],
+    )
+    assert len(rules.keyword_patterns) == 2
+    assert rules.keyword_patterns[0].type == "api_key"
+
+
+def test_keyword_patterns_parsed_from_yaml(tmp_path):
+    from easm.config import load_config
+    import yaml
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.dump({
+        "targets": [{
+            "id": "t", "name": "T", "type": "org", "enabled": True,
+            "match_rules": {
+                "domains": ["example.com"],
+                "keyword_patterns": [
+                    {"type": "api_key", "pattern": "AKIA[0-9A-Z]{16}", "severity": "high"},
+                ],
+            },
+            "runners": {},
+        }],
+    }))
+    config = load_config(path)
+    assert len(config.targets[0].match_rules.keyword_patterns) == 1
+    assert config.targets[0].match_rules.keyword_patterns[0].pattern == "AKIA[0-9A-Z]{16}"
+
+
+def test_keyword_patterns_optional(tmp_path):
+    from easm.config import load_config
+    import yaml
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.dump({
+        "targets": [{
+            "id": "t", "name": "T", "type": "org", "enabled": True,
+            "match_rules": {"domains": ["example.com"]},
+            "runners": {},
+        }],
+    }))
+    config = load_config(path)
+    assert config.targets[0].match_rules.keyword_patterns == []

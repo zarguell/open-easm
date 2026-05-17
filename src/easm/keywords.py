@@ -44,6 +44,13 @@ class KeywordEngine:
             )
             self._patterns.append((pattern, keyword, "keyword", "medium"))
 
+        for kp in match_rules.keyword_patterns:
+            try:
+                compiled = re.compile(kp.pattern, re.IGNORECASE)
+                self._patterns.append((compiled, kp.pattern, kp.type, kp.severity))
+            except re.error:
+                pass
+
     def match(self, text: str) -> list[KeywordMatch]:
         results: list[KeywordMatch] = []
         seen: set[tuple[str, str, str]] = set()

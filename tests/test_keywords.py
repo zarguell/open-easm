@@ -216,3 +216,84 @@ def test_email_and_domain_match_both_returned():
     types_found = {m.keyword_type for m in matches}
     assert "domain" in types_found
     assert "email" in types_found
+
+
+# --- Task 4: Custom regex pattern matching ---
+
+
+def test_custom_regex_pattern_matches():
+    from easm.config import TargetConfig, KeywordPattern
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "domains": ["example.com"],
+            "keyword_patterns": [
+                {"type": "api_key", "pattern": "AKIA[0-9A-Z]{16}", "severity": "high"},
+            ],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Found key: AKIA1234567890ABCD in log")
+    regex_matches = [m for m in matches if m.keyword_type == "api_key"]
+    assert len(regex_matches) == 1
+    assert "AKIA1234567890ABCD" in regex_matches[0].matched_text
+
+
+def test_custom_regex_multiple_matches():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "domains": ["example.com"],
+            "keyword_patterns": [
+                {"type": "api_key", "pattern": "AKIA[0-9A-Z]{16}", "severity": "high"},
+            ],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Keys: AKIA1111111111111111 and AKIA2222222222222222")
+    regex_matches = [m for m in matches if m.keyword_type == "api_key"]
+    assert len(regex_matches) == 2
+
+
+def test_custom_regex_no_match():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "domains": ["example.com"],
+            "keyword_patterns": [
+                {"type": "api_key", "pattern": "AKIA[0-9A-Z]{16}", "severity": "high"},
+            ],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("No keys here, just example.com")
+    regex_matches = [m for m in matches if m.keyword_type == "api_key"]
+    assert len(regex_matches) == 0
+
+
+def test_custom_regex_custom_severity():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "domains": ["example.com"],
+            "keyword_patterns": [
+                {"type": "hostname", "pattern": "internal\\.example\\.com", "severity": "high"},
+                {"type": "debug", "pattern": "DEBUG:", "severity": "low"},
+            ],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("DEBUG: internal.example.com is up")
+    hostname_matches = [m for m in matches if m.keyword_type == "hostname"]
+    debug_matches = [m for m in matches if m.keyword_type == "debug"]
+    assert len(hostname_matches) == 1
+    assert hostname_matches[0].severity == "high"
+    assert len(debug_matches) == 1
+    assert debug_matches[0].severity == "low"

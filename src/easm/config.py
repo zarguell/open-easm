@@ -95,11 +95,25 @@ VALID_PIVOT_TYPES = {
 }
 
 
+class KeywordPattern(BaseModel):
+    type: str
+    pattern: str
+    severity: str = "medium"
+
+    @field_validator("severity")
+    @classmethod
+    def severity_must_be_valid(cls, v: str) -> str:
+        if v not in ("high", "medium", "low"):
+            raise ValueError(f"severity must be one of: high, medium, low, got: {v}")
+        return v
+
+
 class MatchRules(BaseModel):
     domains: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     asns: list[str] = Field(default_factory=list)
     ip_ranges: list[str] = Field(default_factory=list)
+    keyword_patterns: list[KeywordPattern] = Field(default_factory=list)
 
 
 class TargetConfig(BaseModel):
