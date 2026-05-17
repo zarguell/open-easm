@@ -7,7 +7,6 @@ import asyncpg
 
 from easm.correlation.rule import (
     AnalysisMethod,
-    CollectCondition,
     CollectMethod,
     CorrelationRule,
     Finding,
@@ -24,7 +23,7 @@ class CorrelationEngine:
             return []
         groups = self._aggregate(matched, rule)
         findings: list[Finding] = []
-        for key, entities in groups.items():
+        for _key, entities in groups.items():
             if not self._analyze(entities, rule):
                 continue
             first = entities[0]
@@ -95,7 +94,11 @@ class CorrelationEngine:
                 "target_id": r["target_id"],
                 "entity_type": r["entity_type"],
                 "entity_value": r["entity_value"],
-                "attributes": json.loads(r["attributes"]) if isinstance(r["attributes"], str) else (dict(r["attributes"]) if r["attributes"] else {}),
+                "attributes": (
+                    json.loads(r["attributes"])
+                    if isinstance(r["attributes"], str)
+                    else (dict(r["attributes"]) if r["attributes"] else {})
+                ),
             }
             for r in rows
         ]

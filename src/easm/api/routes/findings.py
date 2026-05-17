@@ -50,11 +50,17 @@ async def get_finding(
     try:
         fid = uuid.UUID(finding_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail={"error": "invalid_id", "detail": "Invalid UUID format"})
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_id", "detail": "Invalid UUID format"},
+        ) from None
 
     result = await findings_store.get_finding(fid)
     if result is None:
-        raise HTTPException(status_code=404, detail={"error": "not_found", "detail": "Finding not found"})
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Finding not found"},
+        ) from None
     return result
 
 
@@ -69,18 +75,27 @@ async def update_finding_status(
             status_code=422,
             detail={
                 "error": "invalid_status",
-                "detail": f"Status must be one of: {', '.join(sorted(VALID_FINDING_STATUSES))}",
+                "detail": (
+                    "Status must be one of: "
+                    f"{', '.join(sorted(VALID_FINDING_STATUSES))}"
+                ),
             },
         )
 
     try:
         fid = uuid.UUID(finding_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail={"error": "invalid_id", "detail": "Invalid UUID format"})
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_id", "detail": "Invalid UUID format"},
+        ) from None
 
     existing = await findings_store.get_finding(fid)
     if existing is None:
-        raise HTTPException(status_code=404, detail={"error": "not_found", "detail": "Finding not found"})
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Finding not found"},
+        ) from None
 
     await findings_store.update_finding_status(fid, body.status)
     updated = await findings_store.get_finding(fid)
