@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 
@@ -34,7 +33,9 @@ class PasteMonitorRunner(ApiRunner):
 
         try:
             if "pastebin" in sources:
-                ins, ded, err = await self._poll_pastebin(http, kw_engine, target, run_id, max_pastes)
+                ins, ded, err = await self._poll_pastebin(
+                    http, kw_engine, target, run_id, max_pastes,
+                )
                 inserted += ins
                 deduped += ded
                 errors += err
@@ -84,7 +85,11 @@ class PasteMonitorRunner(ApiRunner):
                             raw["content_length"] = len(content)
                             matches = kw_engine.match(content)
                             raw["keyword_matches"] = [
-                                {"keyword": m.keyword, "match_type": m.match_type, "severity": m.severity}
+                                {
+                                    "keyword": m.keyword,
+                                    "match_type": m.match_type,
+                                    "severity": m.severity,
+                                }
                                 for m in matches
                             ]
 

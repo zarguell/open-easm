@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from easm.parse.base import BaseParser, ParseResult, EntityCandidate, RelationshipCandidate
+from easm.parse.base import BaseParser, EntityCandidate, ParseResult
 
 
 class PasteMonitorParser(BaseParser):
@@ -13,7 +13,10 @@ class PasteMonitorParser(BaseParser):
         matches = raw.get("keyword_matches", [])
 
         if not paste_id or not matches:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no paste id or matches")
+            return ParseResult(
+                entities=[], relationships=[],
+                unparseable=True, parse_error="no paste id or matches",
+            )
 
         entities: list[EntityCandidate] = []
         for m in matches:

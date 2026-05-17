@@ -6,8 +6,14 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum", "paste_monitor", "github_scan", "breach_monitor"}
-SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum", "paste_monitor", "github_scan", "breach_monitor"}
+VALID_RUNNER_NAMES = {
+    "certstream", "subfinder", "asnmap", "crtsh", "dnstwist",
+    "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
+}
+SCHEDULABLE_RUNNERS = {
+    "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum",
+    "paste_monitor", "github_scan", "breach_monitor",
+}
 
 
 class CertStreamFilters(BaseModel):
@@ -79,7 +85,9 @@ class GithubScanRunnerConfig(BaseModel):
     schedule: str = "0 */4 * * *"
     github_token: str | None = None
     gitleaks_path: str = "gitleaks"
-    search_queries: list[str] = Field(default_factory=lambda: ["credential_patterns", "domain_matches"])
+    search_queries: list[str] = Field(
+        default_factory=lambda: ["credential_patterns", "domain_matches"],
+    )
 
 
 class BreachMonitorRunnerConfig(BaseModel):

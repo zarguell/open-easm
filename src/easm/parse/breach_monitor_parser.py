@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from easm.parse.base import BaseParser, ParseResult, EntityCandidate
+from easm.parse.base import BaseParser, EntityCandidate, ParseResult
 
 
 class BreachMonitorParser(BaseParser):
@@ -12,7 +12,10 @@ class BreachMonitorParser(BaseParser):
         source = raw.get("source", "")
 
         if not source:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no source")
+            return ParseResult(
+                entities=[], relationships=[],
+                unparseable=True, parse_error="no source",
+            )
 
         entities: list[EntityCandidate] = []
 
@@ -20,7 +23,11 @@ class BreachMonitorParser(BaseParser):
             breach_name = raw.get("breach_name", "")
             email = raw.get("email", "")
             if not breach_name or not email:
-                return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="missing breach name or email")
+                return ParseResult(
+                    entities=[], relationships=[],
+                    unparseable=True,
+                    parse_error="missing breach name or email",
+                )
 
             finding_id = f"hibp-{email}-{breach_name}"
             entities.append(EntityCandidate(
@@ -42,7 +49,11 @@ class BreachMonitorParser(BaseParser):
         elif source == "dehashed":
             email = raw.get("email", "")
             if not email:
-                return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="dehashed entry without email")
+                return ParseResult(
+                    entities=[], relationships=[],
+                    unparseable=True,
+                    parse_error="dehashed entry without email",
+                )
 
             finding_id = f"dehashed-{email}-{raw.get('database_name', 'unknown')}"
             entities.append(EntityCandidate(
@@ -63,6 +74,10 @@ class BreachMonitorParser(BaseParser):
             ))
 
         else:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error=f"unknown source: {source}")
+            return ParseResult(
+                entities=[], relationships=[],
+                unparseable=True,
+                parse_error=f"unknown source: {source}",
+            )
 
         return ParseResult(entities=entities, relationships=[])

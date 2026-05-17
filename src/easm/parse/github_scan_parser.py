@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from easm.parse.base import BaseParser, ParseResult, EntityCandidate
+from easm.parse.base import BaseParser, EntityCandidate, ParseResult
 
 
 class GithubScanParser(BaseParser):
@@ -14,7 +14,10 @@ class GithubScanParser(BaseParser):
         file_path = raw.get("file_path", "") or raw.get("file", "")
 
         if not source or not repository:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no source or repository")
+            return ParseResult(
+                entities=[], relationships=[],
+                unparseable=True, parse_error="no source or repository",
+            )
 
         entities: list[EntityCandidate] = []
 
@@ -37,7 +40,10 @@ class GithubScanParser(BaseParser):
         elif source == "github_search":
             matches = raw.get("matched_keywords", [])
             if not matches:
-                return ParseResult(entities=[], relationships=[], unparseable=True, parse_error="no keyword matches")
+                return ParseResult(
+                    entities=[], relationships=[],
+                    unparseable=True, parse_error="no keyword matches",
+                )
 
             for m in matches:
                 finding_id = f"github-{repository}-{file_path}-{m.get('keyword', 'unknown')}"
@@ -57,6 +63,10 @@ class GithubScanParser(BaseParser):
                     },
                 ))
         else:
-            return ParseResult(entities=[], relationships=[], unparseable=True, parse_error=f"unknown source: {source}")
+            return ParseResult(
+                entities=[], relationships=[],
+                unparseable=True,
+                parse_error=f"unknown source: {source}",
+            )
 
         return ParseResult(entities=entities, relationships=[])

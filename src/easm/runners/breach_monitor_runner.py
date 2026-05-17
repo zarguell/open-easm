@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from base64 import b64encode
@@ -8,7 +7,6 @@ from base64 import b64encode
 import httpx
 
 from easm.config import TargetConfig
-from easm.keyword_engine import KeywordEngine
 from easm.runners.base import ApiRunner
 
 logger = logging.getLogger(__name__)
@@ -132,7 +130,11 @@ class BreachMonitorRunner(ApiRunner):
 
         for query in queries:
             try:
-                resp = await http.get(DEHASHED_API, params={"query": query, "size": 100}, headers=headers)
+                resp = await http.get(
+                    DEHASHED_API,
+                    params={"query": query, "size": 100},
+                    headers=headers,
+                )
                 if resp.status_code != 200:
                     logger.warning("Dehashed returned %d for query: %s", resp.status_code, query)
                     continue

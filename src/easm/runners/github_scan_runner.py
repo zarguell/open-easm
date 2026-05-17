@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from dataclasses import dataclass
 
 import httpx
 
@@ -25,7 +24,6 @@ class GithubScanRunner(ApiRunner):
     async def run_once(
         self, target: TargetConfig, trigger_type: str, run_id: uuid.UUID
     ) -> tuple[int, int, int]:
-        cfg = self.get_runner_config(target)
         http = self._http_client or httpx.AsyncClient(timeout=60.0)
         inserted = deduped = errors = 0
 
