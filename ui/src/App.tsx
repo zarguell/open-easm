@@ -5,6 +5,7 @@ import { InventoryView } from "./components/inventory/InventoryView";
 import { GraphView } from "./components/graph/GraphView";
 import { RunsView } from "./components/runs/RunsView";
 import { TargetsView } from "./components/targets/TargetsView";
+import { GeoMap } from "./components/GeoMap";
 
 export function App() {
   return (
@@ -15,6 +16,7 @@ export function App() {
         <Route path="graph" element={<GraphView />} />
         <Route path="runs" element={<RunsView />} />
         <Route path="targets" element={<TargetsView />} />
+        <Route path="geo" element={<GeoMap />} />
       </Route>
     </Routes>
   );

@@ -28,6 +28,11 @@ RUN ASNMAP_VER="v1.1.1" && \
     chmod +x /usr/local/bin/asnmap && \
     rm /tmp/asnmap.zip
 
+# Download GeoLite2 database for geo-IP enrichment (non-fatal)
+RUN mkdir -p /app/data && \
+    curl -fsSL "https://github.com/zarguell/TA-geoip/raw/refs/heads/master/bin/GeoLite2-City.mmdb" \
+    -o /app/data/GeoLite2-City.mmdb || echo "GeoLite2 download failed, geo-IP disabled"
+
 WORKDIR /app
 
 COPY pyproject.toml .

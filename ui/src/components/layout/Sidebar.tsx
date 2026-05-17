@@ -5,6 +5,7 @@ import {
   Share2,
   Play,
   Target,
+  Globe,
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
@@ -24,6 +25,7 @@ const navItems = [
   { icon: Share2, label: "Graph Explorer", path: "/graph" },
   { icon: Play, label: "Runs", path: "/runs" },
   { icon: Target, label: "Targets & Pivots", path: "/targets" },
+  { icon: Globe, label: "Geo Map", path: "/geo" },
 ] as const;
 
 export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: SidebarProps) {

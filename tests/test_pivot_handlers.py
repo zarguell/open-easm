@@ -27,4 +27,7 @@ async def test_pivot_handler_registry_imports():
     assert "dns_resolve" in PIVOT_HANDLER_REGISTRY
     assert "crtsh_search" in PIVOT_HANDLER_REGISTRY
     assert "shodan_enrich" in PIVOT_HANDLER_REGISTRY
-    assert len(PIVOT_HANDLER_REGISTRY) == 7
+    assert "dns_mail_records" in PIVOT_HANDLER_REGISTRY
+    assert "tls_cert_grab" in PIVOT_HANDLER_REGISTRY
+    assert "geoip_enrich" in PIVOT_HANDLER_REGISTRY
+    assert len(PIVOT_HANDLER_REGISTRY) == 11

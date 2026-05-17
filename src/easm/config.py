@@ -88,8 +88,10 @@ class PivotConfig(BaseModel):
 
 
 VALID_PIVOT_TYPES = {
+    "dns_mail_records",
     "dns_resolve", "rdap_lookup", "crtsh_search",
     "shodan_enrich", "reverse_dns", "domain_rdap", "subdomain_enum",
+    "tls_cert_grab", "geoip_enrich",
 }
 
 

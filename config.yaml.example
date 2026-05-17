@@ -37,3 +37,36 @@ targets:
         args:
           expand_org_names: true
           timeout_seconds: 300
+    pivot:
+      enabled: true
+      max_depth: 4
+      max_concurrent: 3
+      allowed_pivots:
+        - from: ip_range
+          to: ip
+          via: reverse_dns
+        - from: hostname
+          to: ip
+          via: dns_resolve
+        - from: hostname
+          to: domain
+          via: domain_extract
+        - from: domain
+          to: certificate
+          via: crtsh_search
+        - from: domain
+          to: domain
+          via: dns_mail_records
+          cooldown_hours: 24
+        - from: hostname
+          to: certificate
+          via: tls_cert_grab
+          cooldown_hours: 24
+        - from: domain
+          to: domain
+          via: domain_rdap
+          cooldown_hours: 168
+        - from: ip
+          to: ip
+          via: geoip_enrich
+          cooldown_hours: 168

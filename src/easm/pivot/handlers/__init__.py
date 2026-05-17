@@ -6,8 +6,12 @@ from easm.pivot.handlers.reverse_dns import ReverseDnsHandler
 from easm.pivot.handlers.domain_rdap import DomainRdapHandler
 from easm.pivot.handlers.subdomain_enum import SubdomainEnumHandler
 from easm.pivot.handlers.domain_extract import DomainExtractHandler
+from easm.pivot.handlers.dns_mail_records import DnsMailRecordsHandler
+from easm.pivot.handlers.tls_cert_grab import TlsCertGrabHandler
+from easm.pivot.handlers.geoip_enrich import GeoIpEnrichHandler
 
 PIVOT_HANDLER_REGISTRY: dict = {
+    "dns_mail_records": DnsMailRecordsHandler,
     "dns_resolve": DnsResolveHandler,
     "crtsh_search": CrtShSearchHandler,
     "rdap_lookup": RdapLookupHandler,
@@ -16,4 +20,6 @@ PIVOT_HANDLER_REGISTRY: dict = {
     "domain_rdap": DomainRdapHandler,
     "subdomain_enum": SubdomainEnumHandler,
     "domain_extract": DomainExtractHandler,
+    "tls_cert_grab": TlsCertGrabHandler,
+    "geoip_enrich": GeoIpEnrichHandler,
 }
