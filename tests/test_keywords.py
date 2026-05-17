@@ -359,3 +359,53 @@ def test_severity_email_is_high():
     matches = engine.match("admin@example.com exposed")
     email_matches = [m for m in matches if m.keyword_type == "email"]
     assert email_matches[0].severity == "high"
+
+
+# --- Task 6: build_keyword_engine_for_target ---
+
+
+def test_build_engine_from_target_id():
+    from easm.config import Config, TargetConfig
+    from easm.keywords import build_keyword_engine_for_target
+    cfg = Config(targets=[
+        TargetConfig(
+            id="test", name="Test", type="org",
+            match_rules={"domains": ["example.com"]},
+            runners={},
+        ),
+    ])
+    engine = build_keyword_engine_for_target(cfg, "test")
+    assert engine is not None
+    matches = engine.match("admin@example.com")
+    assert len(matches) >= 1
+
+
+def test_build_engine_returns_none_for_unknown_target():
+    from easm.config import Config, TargetConfig
+    from easm.keywords import build_keyword_engine_for_target
+    cfg = Config(targets=[
+        TargetConfig(
+            id="test", name="Test", type="org",
+            match_rules={"domains": ["example.com"]},
+            runners={},
+        ),
+    ])
+    engine = build_keyword_engine_for_target(cfg, "nonexistent")
+    assert engine is None
+
+
+def test_keyword_match_deduplication():
+    from easm.config import TargetConfig
+    target = TargetConfig(
+        id="test", name="Test", type="org",
+        match_rules={
+            "domains": ["example.com"],
+            "keywords": ["example.com"],
+        },
+        runners={},
+    )
+    engine = KeywordEngine(target)
+    matches = engine.match("Visit example.com today")
+    assert len(matches) >= 1
+    types = [m.keyword_type for m in matches]
+    assert types.count("domain") <= 1

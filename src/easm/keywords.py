@@ -76,3 +76,10 @@ class KeywordEngine:
                 ))
 
         return results
+
+
+def build_keyword_engine_for_target(cfg: Any, target_id: str) -> KeywordEngine | None:
+    for target in cfg.targets:
+        if target.id == target_id:
+            return KeywordEngine(target)
+    return None
