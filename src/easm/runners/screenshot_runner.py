@@ -7,6 +7,11 @@ from pathlib import Path
 from easm.config import TargetConfig
 from easm.runners.base import BaseRunner
 
+try:
+    from playwright.async_api import async_playwright as _async_playwright
+except ImportError:
+    _async_playwright = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 SCREENSHOT_DIR = Path("data/screenshots")
@@ -25,15 +30,13 @@ class ScreenshotRunner(BaseRunner):
         timeout = cfg.get("args", {}).get("timeout_seconds", 30)
         inserted = deduped = errors = 0
 
-        try:
-            from playwright.async_api import async_playwright
-        except ImportError:
+        if _async_playwright is None:
             logger.error("playwright not installed")
             return 0, 0, 1
 
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-        async with async_playwright() as p:
+        async with _async_playwright() as p:
             browser = await p.chromium.launch()
             for domain in target.match_rules.domains:
                 for scheme in ("https://", "http://"):

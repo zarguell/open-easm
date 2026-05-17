@@ -18,7 +18,6 @@ async def test_screenshot_runner_class_attributes():
 
 @pytest.mark.asyncio
 async def test_screenshot_runner_returns_tuple_without_playwright():
-    """When playwright is not importable, runner returns (0, 0, 1)."""
     mock_store = MagicMock()
     mock_target = MagicMock()
     mock_target.id = "test-target"
@@ -28,23 +27,11 @@ async def test_screenshot_runner_returns_tuple_without_playwright():
 
     runner = ScreenshotRunner(store=mock_store)
 
-    with patch.dict("sys.modules", {"playwright": None, "playwright.async_api": None}):
-        # Force ImportError by making the import fail
-        import builtins
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if "playwright" in name:
-                raise ImportError("no playwright")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            inserted, deduped, errors = await runner.run_once(
-                mock_target, "manual", uuid.uuid4()
-            )
-    assert isinstance(inserted, int)
-    assert isinstance(deduped, int)
-    assert isinstance(errors, int)
+    with patch("easm.runners.screenshot_runner._async_playwright", None):
+        inserted, deduped, errors = await runner.run_once(
+            mock_target, "manual", uuid.uuid4()
+        )
+    assert errors > 0
 
 
 @pytest.mark.asyncio
@@ -75,7 +62,7 @@ async def test_screenshot_runner_run_once_with_mock_playwright():
 
     runner = ScreenshotRunner(store=mock_store)
 
-    with patch("easm.runners.screenshot_runner.async_playwright", return_value=mock_pw):
+    with patch("easm.runners.screenshot_runner._async_playwright", return_value=mock_pw, create=True):
         inserted, deduped, errors = await runner.run_once(
             mock_target, "manual", uuid.uuid4()
         )
