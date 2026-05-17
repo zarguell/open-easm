@@ -63,6 +63,13 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                         results = await handler_fn(job, pool, http_client=shared_http, limiters=limiters)
                         source_name = PIVOT_SOURCE_NAMES.get(job["pivot_type"], job["pivot_type"])
 
+                        run_id = job["run_id"]
+                        if not run_id:
+                            run_id = await store.create_run(
+                                job["target_id"], f"pivot:{job['pivot_type']}",
+                                "pivot", org_id=job["org_id"],
+                            )
+
                         for raw_result in results:
                             meta = {
                                 "_meta": {
@@ -85,7 +92,7 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                                    VALUES ($1, $2, $3, $4::jsonb, $5, $6)
                                    ON CONFLICT (event_hash) DO NOTHING""",
                                 job["org_id"], job["target_id"], source_name,
-                                raw_json, event_hash, job["run_id"],
+                                raw_json, event_hash, run_id,
                             )
                         await store.mark_pivot_completed(job["id"])
                     except Exception:
