@@ -8,6 +8,27 @@ from easm.store import Store
 router = APIRouter(tags=["entities"])
 
 
+@router.get("/entities/counts")
+async def get_entity_counts(
+    target_id: str | None = Query(None),
+    store: Store = Depends(get_store),
+):
+    conditions: list[str] = []
+    params: list[object] = []
+    if target_id:
+        conditions.append("target_id = $1")
+        params.append(target_id)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = await store.pool.fetch(
+        f"SELECT entity_type, COUNT(*) AS count FROM entities {where} GROUP BY entity_type",
+        *params,
+    )
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["entity_type"]] = r["count"]
+    return {"counts": counts}
+
+
 @router.get("/entities")
 async def list_entities(
     target_id: str | None = Query(None),

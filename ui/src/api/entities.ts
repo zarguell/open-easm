@@ -60,6 +60,17 @@ export function useEntities(params: {
   })
 }
 
+export function useEntityCounts(targetId?: string) {
+  return useQuery({
+    queryKey: ['entity-counts', targetId],
+    queryFn: () => {
+      const searchParams: Record<string, string> = {}
+      if (targetId) searchParams.target_id = targetId
+      return api.get('entities/counts', { searchParams }).json<{ counts: Record<string, number> }>()
+    },
+  })
+}
+
 export function useEntity(entityId: string | null) {
   return useQuery({
     queryKey: ['entity', entityId],

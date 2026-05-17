@@ -1,5 +1,5 @@
 import { type FC } from 'react'
-import { useEntities } from '../../api/entities'
+import { useEntityCounts } from '../../api/entities'
 import { MetricCard } from '../shared/Card'
 import { getEntityColor, getEntityLabel } from '../../lib/entity-colors'
 import { ErrorDisplay } from '../shared/ErrorDisplay'
@@ -8,7 +8,7 @@ import { Skeleton } from '../shared/Skeleton'
 const DASHBOARD_ENTITY_TYPES = ['domain', 'ip', 'hostname', 'certificate'] as const
 
 export const MetricCards: FC = () => {
-  const { data: entitiesData, isLoading, isError, error, refetch } = useEntities({ limit: 100 })
+  const { data, isLoading, isError, error, refetch } = useEntityCounts()
 
   if (isError) {
     return <ErrorDisplay message={error.message} onRetry={() => refetch()} />
@@ -27,18 +27,7 @@ export const MetricCards: FC = () => {
     )
   }
 
-  const allEntities = entitiesData?.pages.flatMap(page => page.entities) ?? []
-
-  const counts: Record<string, number> = {}
-  for (const t of DASHBOARD_ENTITY_TYPES) {
-    counts[t] = 0
-  }
-  for (const entity of allEntities) {
-    const normalized = entity.entity_type.toLowerCase()
-    if (normalized in counts) {
-      counts[normalized]!++
-    }
-  }
+  const counts = data?.counts ?? {}
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
