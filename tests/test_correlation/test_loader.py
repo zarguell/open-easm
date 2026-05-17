@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from easm.correlation.loader import load_rule_from_file, load_rules_from_dir
 from easm.correlation.rule import CorrelationRule
