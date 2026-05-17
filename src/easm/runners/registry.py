@@ -42,6 +42,7 @@ async def _asnmap_run(target, store, trigger_type, run_id, log, http_client):
         args_template=["-a", "[item]", "-json"],
         iterate_over=lambda t: t.match_rules.asns,
         timeout=timeout,
+        output_schema=OUTPUT_SCHEMAS.get("asnmap"),
     )
 
 
@@ -60,6 +61,7 @@ async def _subfinder_run(target, store, trigger_type, run_id, log, http_client):
         args_template=args_template,
         iterate_over=lambda t: t.match_rules.domains,
         timeout=timeout,
+        output_schema=OUTPUT_SCHEMAS.get("subfinder"),
     )
 
 
@@ -81,6 +83,7 @@ async def _dnstwist_run(target, store, trigger_type, run_id, log, http_client):
         iterate_over=lambda t: t.match_rules.domains,
         timeout=120,
         transform_fn=transform_fn,
+        output_schema=OUTPUT_SCHEMAS.get("dnstwist"),
     )
 
 
@@ -112,6 +115,7 @@ async def _nuclei_run(target, store, trigger_type, run_id, log, http_client):
         iterate_over=iterate_domains_x2,
         timeout=timeout,
         transform_fn=transform_fn,
+        output_schema=OUTPUT_SCHEMAS.get("nuclei"),
     )
 
 
@@ -133,6 +137,7 @@ async def _wappalyzer_run(target, store, trigger_type, run_id, log, http_client)
         iterate_over=iterate_domains_x2,
         timeout=timeout,
         transform_fn=transform_fn,
+        output_schema=OUTPUT_SCHEMAS.get("wappalyzer"),
     )
 
 
@@ -162,6 +167,7 @@ async def _crtsh_run(target, store, trigger_type, run_id, log, http_client):
         retry_statuses=(429, 502, 503, 504),
         inter_delay=1.5,
         max_concurrent=3,
+        output_schema=OUTPUT_SCHEMAS.get("crtsh"),
     )
 
 
@@ -194,6 +200,7 @@ async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client
         iterate_over=_cc_iterate,
         timeout=30.0,
         transform_fn=transform_fn,
+        output_schema=OUTPUT_SCHEMAS.get("commoncrawl"),
     )
 
 
