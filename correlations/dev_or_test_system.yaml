@@ -1,0 +1,22 @@
+id: dev_or_test_system
+meta:
+  name: "Development or test system on public internet"
+  risk: medium
+  description: >
+    A hostname containing dev, test, staging, uat, or internal in its
+    name was found exposed on the public internet.
+collect:
+  - method: exact
+    field: entity_type
+    value: hostname
+  - method: regex
+    field: entity_value
+    patterns:
+      - ".*dev.*"
+      - ".*test.*"
+      - ".*staging.*"
+      - ".*uat.*"
+      - ".*internal.*"
+aggregation:
+  field: entity_value
+headline: "Development system exposed: {entity_value}"

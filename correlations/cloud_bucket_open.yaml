@@ -1,0 +1,22 @@
+id: cloud_bucket_open
+meta:
+  name: "Potential cloud storage bucket exposure"
+  risk: high
+  description: >
+    A hostname matching common cloud storage bucket naming patterns
+    (amazonaws.com, storage.googleapis.com, blob.core.windows.net)
+    was discovered.
+collect:
+  - method: exact
+    field: entity_type
+    value: hostname
+  - method: regex
+    field: entity_value
+    patterns:
+      - ".*s3\\.amazonaws\\.com"
+      - ".*storage\\.googleapis\\.com"
+      - ".*blob\\.core\\.windows\\.net"
+      - ".*digitaloceanspaces\\.com"
+aggregation:
+  field: entity_value
+headline: "Cloud storage endpoint found: {entity_value}"

@@ -1,0 +1,18 @@
+id: subdomain_takeover_risk
+meta:
+  name: "Potential subdomain takeover"
+  risk: high
+  description: >
+    A domain or hostname was found with a DNS record pointing to a
+    service that may be unclaimed or expired.
+collect:
+  - method: exact
+    field: entity_type
+    value: hostname
+aggregation:
+  field: entity_value
+analysis:
+  - method: threshold
+    field: entity_value
+    minimum: 1
+headline: "Subdomain with takeover indicators: {entity_value}"

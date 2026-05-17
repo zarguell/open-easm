@@ -1,0 +1,18 @@
+id: email_in_breach
+meta:
+  name: "Organization email found in breach data"
+  risk: high
+  description: >
+    An email address or email pattern matching the organization was found
+    in breach monitoring data.
+collect:
+  - method: exact
+    field: entity_type
+    value: hostname
+  - method: regex
+    field: entity_value
+    patterns:
+      - ".*@.*"
+aggregation:
+  field: entity_value
+headline: "Email-related entity found: {entity_value}"
