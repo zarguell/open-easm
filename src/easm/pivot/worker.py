@@ -8,7 +8,7 @@ from pathlib import Path
 from easm.correlation.engine import CorrelationEngine
 from easm.correlation.findings_store import FindingsStore
 from easm.correlation.loader import load_rules_from_dir
-from easm.pivot import PIVOT_HANDLER_REGISTRY
+from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY
 from easm.pivot_store import (
     dequeue_pivot_job,
     mark_pivot_completed,
