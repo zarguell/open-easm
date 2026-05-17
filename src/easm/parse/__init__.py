@@ -1,8 +1,10 @@
 from easm.parse.abuseipdb_parser import AbuseIpDbParser
 from easm.parse.asnmap_parser import AsnmapParser
 from easm.parse.breach_monitor_parser import BreachMonitorParser
+from easm.parse.censys_parser import CensysParser
 from easm.parse.certstream_parser import CertStreamParser
 from easm.parse.cloud_bucket_parser import CloudBucketParser
+from easm.parse.commoncrawl_parser import CommonCrawlParser
 from easm.parse.crtsh_parser import CrtShParser
 from easm.parse.dns_mail_records_parser import DnsMailRecordsParser
 from easm.parse.dns_parser import DnsParser
@@ -12,7 +14,12 @@ from easm.parse.geoip_parser import GeoIpParser
 from easm.parse.github_scan_parser import GithubScanParser
 from easm.parse.greynoise_parser import GreyNoiseParser
 from easm.parse.paste_monitor_parser import PasteMonitorParser
+from easm.parse.passive_dns_parser import PassiveDnsParser
 from easm.parse.reverse_dns_parser import ReverseDnsParser
+from easm.parse.reverse_whois_parser import ReverseWhoisParser
+from easm.parse.searchengine_parser import SearchEngineParser
+from easm.parse.shodan_parser import ShodanParser
+from easm.parse.subdomain_takeover_parser import SubdomainTakeoverParser
 from easm.parse.subfinder_parser import SubfinderParser
 from easm.parse.tls_cert_parser import TlsCertParser
 from easm.parse.urlscan_parser import UrlScanParser
@@ -36,4 +43,11 @@ PARSER_REGISTRY = {
     "paste_monitor": PasteMonitorParser,
     "github_scan": GithubScanParser,
     "breach_monitor": BreachMonitorParser,
+    "shodan": ShodanParser,
+    "censys": CensysParser,
+    "reverse_whois": ReverseWhoisParser,
+    "securitytrails": PassiveDnsParser,
+    "takeover": SubdomainTakeoverParser,
+    "commoncrawl": CommonCrawlParser,
+    "searchengine": SearchEngineParser,
 }

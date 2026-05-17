@@ -90,6 +90,17 @@ targets:
         hibp_api_key: "${HIBP_API_KEY}"
         dehashed_api_key: "${DEHASHED_KEY}"
         dehashed_email: "${DEHASHED_EMAIL}"
+      commoncrawl:
+        enabled: true
+        schedule: "0 4 * * 1"
+        args:
+          timeout_seconds: 600
+      searchengine:
+        enabled: true
+        schedule: "0 6 * * *"
+        args:
+          timeout_seconds: 300
+          duckduckgo: true
     pivot:
       enabled: true
       max_depth: 4
@@ -135,4 +146,21 @@ targets:
         - from: domain
           to: domain
           via: urlscan_enrich
+          cooldown_hours: 168
+        # Deep enrichment pivots
+        - from: ip
+          to: ip
+          via: censys_enrich
+          cooldown_hours: 168
+        - from: domain
+          to: domain
+          via: reverse_whois
+          cooldown_hours: 168
+        - from: domain
+          to: ip
+          via: passive_dns
+          cooldown_hours: 168
+        - from: hostname
+          to: hostname
+          via: subdomain_takeover
           cooldown_hours: 168

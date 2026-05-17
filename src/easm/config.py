@@ -9,10 +9,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 VALID_RUNNER_NAMES = {
     "certstream", "subfinder", "asnmap", "crtsh", "dnstwist",
     "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
+    "commoncrawl", "searchengine",
 }
 SCHEDULABLE_RUNNERS = {
     "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum",
     "paste_monitor", "github_scan", "breach_monitor",
+    "commoncrawl", "searchengine",
 }
 
 
@@ -128,6 +130,7 @@ VALID_PIVOT_TYPES = {
     "greynoise_enrich",
     "abuseipdb_enrich",
     "urlscan_enrich",
+    "censys_enrich", "reverse_whois", "passive_dns", "subdomain_takeover",
 }
 
 

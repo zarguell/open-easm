@@ -1,4 +1,5 @@
 from easm.pivot.handlers.abuseipdb_enrich import AbuseIpDbHandler
+from easm.pivot.handlers.censys_enrich import CensysEnrichHandler
 from easm.pivot.handlers.crtsh_search import CrtShSearchHandler
 from easm.pivot.handlers.dns_mail_records import DnsMailRecordsHandler
 from easm.pivot.handlers.dns_resolve import DnsResolveHandler
@@ -6,10 +7,13 @@ from easm.pivot.handlers.domain_extract import DomainExtractHandler
 from easm.pivot.handlers.domain_rdap import DomainRdapHandler
 from easm.pivot.handlers.geoip_enrich import GeoIpEnrichHandler
 from easm.pivot.handlers.greynoise_enrich import GreyNoiseHandler
+from easm.pivot.handlers.passive_dns import PassiveDnsHandler
 from easm.pivot.handlers.rdap_lookup import RdapLookupHandler
 from easm.pivot.handlers.reverse_dns import ReverseDnsHandler
+from easm.pivot.handlers.reverse_whois import ReverseWhoisHandler
 from easm.pivot.handlers.shodan_enrich import ShodanEnrichHandler
 from easm.pivot.handlers.subdomain_enum import SubdomainEnumHandler
+from easm.pivot.handlers.subdomain_takeover import SubdomainTakeoverHandler
 from easm.pivot.handlers.tls_cert_grab import TlsCertGrabHandler
 from easm.pivot.handlers.urlscan_enrich import UrlScanHandler
 
@@ -28,4 +32,8 @@ PIVOT_HANDLER_REGISTRY: dict = {
     "greynoise_enrich": GreyNoiseHandler,
     "abuseipdb_enrich": AbuseIpDbHandler,
     "urlscan_enrich": UrlScanHandler,
+    "censys_enrich": CensysEnrichHandler,
+    "reverse_whois": ReverseWhoisHandler,
+    "passive_dns": PassiveDnsHandler,
+    "subdomain_takeover": SubdomainTakeoverHandler,
 }
