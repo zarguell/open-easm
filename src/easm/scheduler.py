@@ -21,7 +21,7 @@ class Scheduler:
             if not target.enabled:
                 continue
             for runner_name, runner_cfg in target.runners.items():
-                cfg_dict = runner_cfg if isinstance(runner_cfg, dict) else runner_cfg.model_dump()
+                cfg_dict = runner_cfg.model_dump()
                 if not cfg_dict.get("enabled", False):
                     continue
                 if runner_name not in self._runner_registry:

@@ -28,81 +28,40 @@ class CertStreamFilters(BaseModel):
     match_mode: str = "suffix"
 
 
-class CertStreamRunnerConfig(BaseModel):
+class RunnerConfig(BaseModel):
+    """Generic per-runner configuration. All fields optional, validated at load time."""
     enabled: bool = False
-    mode: str = "realtime"
-    filters: CertStreamFilters = Field(default_factory=CertStreamFilters)
-
-
-class ScheduledRunnerArgs(BaseModel):
-    timeout_seconds: int = 300
-
-    @field_validator("timeout_seconds")
-    @classmethod
-    def timeout_must_be_positive(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("timeout_seconds must be positive")
-        return v
-
-
-class SubfinderRunnerArgs(ScheduledRunnerArgs):
-    passive_only: bool = True
-    recursive: bool = False
-
-
-class AsnmapRunnerArgs(ScheduledRunnerArgs):
-    expand_org_names: bool = False
-
-
-class SubfinderRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 */6 * * *"
-    args: SubfinderRunnerArgs = Field(default_factory=SubfinderRunnerArgs)
-
-
-class AsnmapRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 2 * * *"
-    args: AsnmapRunnerArgs = Field(default_factory=AsnmapRunnerArgs)
-
-
-class CrtShRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 4 * * *"
-    args: ScheduledRunnerArgs = Field(default_factory=ScheduledRunnerArgs)
-
-
-class DnstwistRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 6 * * 1"
-    args: ScheduledRunnerArgs = Field(default_factory=ScheduledRunnerArgs)
-
-
-class PasteMonitorRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "*/5 * * * *"
-    sources: list[str] = Field(default_factory=lambda: ["pastebin"])
+    schedule: str | None = None
+    mode: str | None = None
+    filters: CertStreamFilters | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    sources: list[str] = Field(default_factory=list)
     pastebin_api_key: str | None = None
     max_pastes_per_run: int = 100
-
-
-class GithubScanRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 */4 * * *"
     github_token: str | None = None
     gitleaks_path: str = "gitleaks"
     search_queries: list[str] = Field(
         default_factory=lambda: ["credential_patterns", "domain_matches"],
     )
-
-
-class BreachMonitorRunnerConfig(BaseModel):
-    enabled: bool = False
-    schedule: str = "0 6 * * *"
-    sources: list[str] = Field(default_factory=lambda: ["hibp"])
     hibp_api_key: str | None = None
     dehashed_api_key: str | None = None
     dehashed_email: str | None = None
+
+    @field_validator("schedule")
+    @classmethod
+    def must_be_valid_cron(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        import re
+        field = r"(\*(\/\d+)?|[0-5]?\d)"
+        hour = r"(\*(\/\d+)?|1?\d|2[0-3])"
+        day = r"(\*(\/\d+)?|[1-3]?\d)"
+        month = r"(\*(\/\d+)?|1?\d|1[0-2])"
+        dow = r"(\*(\/\d+)?|[0-7])"
+        cr = re.compile(rf"^{field}\s+{hour}\s+{day}\s+{month}\s+{dow}$")
+        if not cr.match(v):
+            raise ValueError(f"Invalid cron expression: {v}")
+        return v
 
 
 class CoverageConfig(BaseModel):
@@ -167,7 +126,7 @@ class TargetConfig(BaseModel):
     enabled: bool = True
     labels: dict[str, str] = Field(default_factory=dict)
     match_rules: MatchRules = Field(default_factory=MatchRules)
-    runners: dict[str, Any] = Field(default_factory=dict)
+    runners: dict[str, RunnerConfig] = Field(default_factory=dict)
     pivot: PivotConfig = Field(default_factory=PivotConfig)
 
     @field_validator("id")
@@ -176,6 +135,26 @@ class TargetConfig(BaseModel):
         if not v or not all(c.isalnum() or c == "-" for c in v):
             raise ValueError(f"Target id '{v}' must be alphanumeric with hyphens only")
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_runners(cls, data: Any) -> Any:
+        """Coerce raw dict runner configs to RunnerConfig instances."""
+        if isinstance(data, dict) and "runners" in data:
+            runners = data["runners"]
+            if isinstance(runners, dict):
+                normalized = {}
+                for name, cfg in runners.items():
+                    if isinstance(cfg, dict):
+                        normalized[name] = RunnerConfig.model_validate(cfg)
+                    elif isinstance(cfg, RunnerConfig):
+                        normalized[name] = cfg
+                    else:
+                        raise ValueError(
+                            f"Unknown runner config type for '{name}': {type(cfg)}"
+                        )
+                data["runners"] = normalized
+        return data
 
 
 ClassificationType = Literal["saas-hosted", "org-owned", "third-party-integrated"]
@@ -225,31 +204,13 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_runners(self) -> Config:
-        import re
-
-        _cron_field = r"(\*(\/\d+)?|[0-5]?\d)"
-        _cron_hour = r"(\*(\/\d+)?|1?\d|2[0-3])"
-        _cron_day = r"(\*(\/\d+)?|[1-3]?\d)"
-        _cron_month = r"(\*(\/\d+)?|1?\d|1[0-2])"
-        _cron_dow = r"(\*(\/\d+)?|[0-7])"
-        cron_re = re.compile(
-            rf"^{_cron_field}\s+{_cron_hour}\s+{_cron_day}\s+{_cron_month}\s+{_cron_dow}$"
-        )
         for target in self.targets:
-            for runner_name, runner_cfg in target.runners.items():
+            for runner_name in target.runners:
                 if runner_name not in VALID_RUNNER_NAMES:
                     raise ValueError(
                         f"Unknown runner '{runner_name}' in target '{target.id}'. "
                         f"Valid runners: {', '.join(sorted(VALID_RUNNER_NAMES))}"
                     )
-                cfg_dict = runner_cfg if isinstance(runner_cfg, dict) else runner_cfg.model_dump()
-                if runner_name in SCHEDULABLE_RUNNERS:
-                    schedule = cfg_dict.get("schedule")
-                    if schedule and not cron_re.match(schedule):
-                        raise ValueError(
-                            f"Invalid cron expression '{schedule}' "
-                            f"for {runner_name} in target '{target.id}'"
-                        )
         return self
 
 

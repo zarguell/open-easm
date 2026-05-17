@@ -75,7 +75,7 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
                 "detail": f"Runner '{runner}' not configured for target",
             },
         )
-    cfg_dict = runner_cfg if isinstance(runner_cfg, dict) else runner_cfg.model_dump()
+    cfg_dict = runner_cfg.model_dump()
     if not cfg_dict.get("enabled", False):
         raise HTTPException(
             status_code=400,
