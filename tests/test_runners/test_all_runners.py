@@ -1,17 +1,20 @@
 import pytest
 from easm.runners import (
     AsnmapRunner,
+    BreachMonitorRunner,
     CertStreamRunner,
+    CloudBucketRunner,
     CrtShRunner,
     DnstwistRunner,
+    GithubScanRunner,
+    PasteMonitorRunner,
     SubfinderRunner,
-    CloudBucketRunner,
     RUNNER_REGISTRY,
 )
 
 
 def test_runner_registry_has_all_runners():
-    assert set(RUNNER_REGISTRY.keys()) == {"subfinder", "asnmap", "certstream", "crtsh", "dnstwist", "cloud_enum"}
+    assert set(RUNNER_REGISTRY.keys()) == {"subfinder", "asnmap", "certstream", "crtsh", "dnstwist", "cloud_enum", "paste_monitor", "github_scan", "breach_monitor"}
 
 
 def test_subfinder_runner_class_attributes():
@@ -56,3 +59,33 @@ def test_cloud_bucket_runner_attributes():
     assert CloudBucketRunner.supports_manual_trigger is True
     assert CloudBucketRunner.is_continuous is False
     assert CloudBucketRunner.is_api_runner is True
+
+
+def test_paste_monitor_runner_class_attributes():
+    from easm.runners.paste_monitor_runner import PasteMonitorRunner
+
+    assert PasteMonitorRunner.source_name == "paste_monitor"
+    assert PasteMonitorRunner.supports_schedule is True
+    assert PasteMonitorRunner.supports_manual_trigger is True
+    assert PasteMonitorRunner.is_continuous is False
+    assert PasteMonitorRunner.is_api_runner is True
+
+
+def test_github_scan_runner_class_attributes():
+    from easm.runners.github_scan_runner import GithubScanRunner
+
+    assert GithubScanRunner.source_name == "github_scan"
+    assert GithubScanRunner.supports_schedule is True
+    assert GithubScanRunner.supports_manual_trigger is True
+    assert GithubScanRunner.is_continuous is False
+    assert GithubScanRunner.is_api_runner is True
+
+
+def test_breach_monitor_runner_class_attributes():
+    from easm.runners.breach_monitor_runner import BreachMonitorRunner
+
+    assert BreachMonitorRunner.source_name == "breach_monitor"
+    assert BreachMonitorRunner.supports_schedule is True
+    assert BreachMonitorRunner.supports_manual_trigger is True
+    assert BreachMonitorRunner.is_continuous is False
+    assert BreachMonitorRunner.is_api_runner is True

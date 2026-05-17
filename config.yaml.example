@@ -71,6 +71,25 @@ targets:
         args:
           timeout_seconds: 600
           concurrency: 20
+      paste_monitor:
+        enabled: true
+        schedule: "*/5 * * * *"
+        sources: [pastebin]
+        pastebin_api_key: "${PASTEBIN_KEY}"
+        max_pastes_per_run: 100
+      github_scan:
+        enabled: true
+        schedule: "0 */4 * * *"
+        github_token: "${GITHUB_TOKEN}"
+        gitleaks_path: gitleaks
+        search_queries: [credential_patterns, domain_matches]
+      breach_monitor:
+        enabled: true
+        schedule: "0 6 * * *"
+        sources: [hibp, dehashed]
+        hibp_api_key: "${HIBP_API_KEY}"
+        dehashed_api_key: "${DEHASHED_KEY}"
+        dehashed_email: "${DEHASHED_EMAIL}"
     pivot:
       enabled: true
       max_depth: 4

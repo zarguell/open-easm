@@ -6,8 +6,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum"}
-SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum"}
+VALID_RUNNER_NAMES = {"certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum", "paste_monitor", "github_scan", "breach_monitor"}
+SCHEDULABLE_RUNNERS = {"subfinder", "asnmap", "crtsh", "dnstwist", "cloud_enum", "paste_monitor", "github_scan", "breach_monitor"}
 
 
 class CertStreamFilters(BaseModel):
@@ -64,6 +64,31 @@ class DnstwistRunnerConfig(BaseModel):
     enabled: bool = False
     schedule: str = "0 6 * * 1"
     args: ScheduledRunnerArgs = Field(default_factory=ScheduledRunnerArgs)
+
+
+class PasteMonitorRunnerConfig(BaseModel):
+    enabled: bool = False
+    schedule: str = "*/5 * * * *"
+    sources: list[str] = Field(default_factory=lambda: ["pastebin"])
+    pastebin_api_key: str | None = None
+    max_pastes_per_run: int = 100
+
+
+class GithubScanRunnerConfig(BaseModel):
+    enabled: bool = False
+    schedule: str = "0 */4 * * *"
+    github_token: str | None = None
+    gitleaks_path: str = "gitleaks"
+    search_queries: list[str] = Field(default_factory=lambda: ["credential_patterns", "domain_matches"])
+
+
+class BreachMonitorRunnerConfig(BaseModel):
+    enabled: bool = False
+    schedule: str = "0 6 * * *"
+    sources: list[str] = Field(default_factory=lambda: ["hibp"])
+    hibp_api_key: str | None = None
+    dehashed_api_key: str | None = None
+    dehashed_email: str | None = None
 
 
 class CoverageConfig(BaseModel):

@@ -251,3 +251,63 @@ def test_keyword_patterns_optional(tmp_path):
     }))
     config = load_config(path)
     assert config.targets[0].match_rules.keyword_patterns == []
+
+
+def test_valid_paste_monitor_config(tmp_path: Path):
+    cfg = make_yaml(tmp_path, {
+        "targets": [{
+            "id": "t",
+            "name": "T",
+            "type": "organization",
+            "enabled": True,
+            "match_rules": {},
+            "runners": {"paste_monitor": {"enabled": True, "schedule": "*/5 * * * *"}},
+        }]
+    })
+    config = load_config(cfg)
+    assert config.targets[0].runners["paste_monitor"]["enabled"] is True
+
+
+def test_valid_github_scan_config(tmp_path: Path):
+    cfg = make_yaml(tmp_path, {
+        "targets": [{
+            "id": "t",
+            "name": "T",
+            "type": "organization",
+            "enabled": True,
+            "match_rules": {},
+            "runners": {"github_scan": {"enabled": True, "schedule": "0 */4 * * *"}},
+        }]
+    })
+    config = load_config(cfg)
+    assert config.targets[0].runners["github_scan"]["enabled"] is True
+
+
+def test_valid_breach_monitor_config(tmp_path: Path):
+    cfg = make_yaml(tmp_path, {
+        "targets": [{
+            "id": "t",
+            "name": "T",
+            "type": "organization",
+            "enabled": True,
+            "match_rules": {},
+            "runners": {"breach_monitor": {"enabled": True, "schedule": "0 6 * * *"}},
+        }]
+    })
+    config = load_config(cfg)
+    assert config.targets[0].runners["breach_monitor"]["enabled"] is True
+
+
+def test_rejects_unknown_cron_new_runners(tmp_path: Path):
+    cfg = make_yaml(tmp_path, {
+        "targets": [{
+            "id": "t",
+            "name": "T",
+            "type": "organization",
+            "enabled": True,
+            "match_rules": {},
+            "runners": {"paste_monitor": {"enabled": True, "schedule": "invalid-cron"}},
+        }]
+    })
+    with pytest.raises(ValueError, match="Invalid cron"):
+        load_config(cfg)
