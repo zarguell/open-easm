@@ -25,6 +25,11 @@ class PivotResolver:
         if scope == ScopeResult.OUT_OF_SCOPE and pivot_config.scope_mode == "strict":
             return
 
+        # Skip pivots for non-org-owned entities (saas-hosted, third-party-integrated)
+        classification = await self._get_classification(entity_id)
+        if classification and classification != "org-owned":
+            return
+
         for pivot_rule in pivot_config.allowed_pivots:
             if pivot_rule.from_ != entity_type:
                 continue
@@ -63,6 +68,13 @@ class PivotResolver:
                 parent_entity_id=parent_entity_id,
                 discovery_session_id=discovery_session_id,
             )
+
+    async def _get_classification(self, entity_id) -> str | None:
+        row = await self.pool.fetchval(
+            "SELECT attributes->>'asset_classification' FROM entities WHERE id = $1",
+            entity_id,
+        )
+        return row
 
     async def _check_apex_coverage(self, org_id, apex, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""
