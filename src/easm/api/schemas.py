@@ -104,3 +104,41 @@ class GraphResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: str
+
+
+class ConfigSnapshot(BaseModel):
+    id: str
+    target_count: int
+    created_at: str
+
+
+class ConfigUpdateRequest(BaseModel):
+    """Partial config update. Only the sections provided are updated."""
+    targets: list[dict[str, Any]] | None = None
+    saas_providers: dict[str, Any] | None = None
+    alerts: dict[str, Any] | None = None
+
+
+class ConfigResponse(BaseModel):
+    targets: list[dict[str, Any]]
+    saas_providers: dict[str, Any] | None = None
+    alerts: dict[str, Any] | None = None
+
+
+class AlertRuleSchema(BaseModel):
+    name: str
+    description: str = ""
+    enabled: bool = True
+    condition: str
+    severity: str = "medium"
+
+
+class AlertFeedEntry(BaseModel):
+    id: str
+    rule_name: str
+    severity: str
+    title: str
+    detail: str
+    entity_id: str | None = None
+    created_at: str
+    acknowledged: bool = False
