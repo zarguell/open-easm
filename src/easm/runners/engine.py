@@ -193,6 +193,38 @@ async def execute_runner(
     return run_id
 
 
+async def _ingest_entities(
+    store: Store,
+    output_schema: Any,
+    raw: dict,
+    run_id: uuid.UUID,
+    org_id: str,
+    target_id: str,
+) -> None:
+    try:
+        entities, relationships = output_schema(raw)
+    except Exception:
+        logger.exception("output_schema failed", extra={"run_id": str(run_id)})
+        return
+    for ec in entities:
+        try:
+            await store.upsert_entity(
+                org_id, target_id, ec.entity_type, ec.value,
+                ec.attributes, raw_event_id=run_id,
+            )
+        except Exception:
+            logger.exception("entity upsert failed")
+    for rc in relationships:
+        try:
+            await store.upsert_relationship(
+                org_id, rc.source_type, rc.target_type,
+                rc.source_value, rc.target_value,
+                rc.relationship_type, rc.relationship_source,
+            )
+        except Exception:
+            logger.exception("relationship upsert failed")
+
+
 # ---------------------------------------------------------------------------
 # Generic subprocess runner
 # ---------------------------------------------------------------------------
@@ -211,6 +243,7 @@ async def standard_subprocess_run(
     iterate_over: Callable[[Any], list[str]],
     timeout: int = 300,
     transform_fn: Callable[[dict, str], dict | None] | None = None,
+    output_schema: Any | None = None,
 ) -> tuple[int, int, int]:
     """Generic subprocess runner for tools that output JSON-lines on stdout.
 
@@ -259,6 +292,9 @@ async def standard_subprocess_run(
             )
             if result:
                 inserted += 1
+                if output_schema:
+                    await _ingest_entities(store, output_schema, raw, run_id,
+                                          target.org_id, target.id)
             else:
                 deduped += 1
 
@@ -282,6 +318,7 @@ async def standard_http_run(
     iterate_over: Callable[[Any], list[str]],
     timeout: float = 30.0,
     transform_fn: Callable[[dict, str], dict | None] | None = None,
+    output_schema: Any | None = None,
     max_retries: int = 0,
     retry_statuses: tuple[int, ...] = (),
     inter_delay: float = 0.0,
@@ -294,6 +331,7 @@ async def standard_http_run(
     3. Parse response as JSON array, single JSON object, or NDJSON
     4. Apply ``transform_fn(record, item)`` if given
     5. ``store.insert_raw_event``
+    6. Ingest entities/relationships via ``output_schema`` if provided
 
     ``retry_statuses`` — HTTP status codes that trigger a retry.
     ``inter_delay`` — seconds to sleep between items (avoids rate-limiting).
@@ -343,6 +381,9 @@ async def standard_http_run(
                 )
                 if result:
                     inserted += 1
+                    if output_schema:
+                        await _ingest_entities(store, output_schema, raw, run_id,
+                                              target.org_id, target.id)
                 else:
                     deduped += 1
 

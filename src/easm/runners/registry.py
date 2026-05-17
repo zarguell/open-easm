@@ -9,6 +9,7 @@ from easm.runners.engine import (
     standard_http_run,
     standard_subprocess_run,
 )
+from easm.runners.schemas import OUTPUT_SCHEMAS
 
 # Type alias for the run function contract.
 # async def run_fn(target, store, trigger_type, run_id, log, http_client) -> (int, int, int)
@@ -21,6 +22,7 @@ class RunnerDef:
 
     source_name: str
     run_fn: RunFn
+    output_schema: Any | None = None
     supports_schedule: bool = True
     supports_manual_trigger: bool = True
     is_continuous: bool = False
@@ -211,6 +213,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("asnmap"),
         ),
         "subfinder": RunnerDef(
             source_name="subfinder",
@@ -218,6 +221,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("subfinder"),
         ),
         "dnstwist": RunnerDef(
             source_name="dnstwist",
@@ -225,6 +229,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("dnstwist"),
         ),
         "nuclei": RunnerDef(
             source_name="nuclei",
@@ -232,6 +237,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("nuclei"),
         ),
         "wappalyzer": RunnerDef(
             source_name="wappalyzer",
@@ -239,6 +245,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("wappalyzer"),
         ),
         "crtsh": RunnerDef(
             source_name="crtsh",
@@ -246,6 +253,7 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("crtsh"),
         ),
         "commoncrawl": RunnerDef(
             source_name="commoncrawl",
@@ -253,5 +261,6 @@ def get_runner_registry() -> dict[str, RunnerDef]:
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("commoncrawl"),
         ),
     }

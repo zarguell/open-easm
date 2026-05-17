@@ -13,7 +13,6 @@ from alembic.config import Config as AlembicConfig
 from easm.api.app import create_app
 from easm.api.deps import set_config, set_scheduler, set_store
 from easm.api.routes.health import check_binaries
-from easm.backfill import backfill_worker
 from easm.config import load_config
 from easm.db import close_pool, create_pool
 from easm.pivot.worker import pivot_worker_pool
@@ -104,9 +103,6 @@ async def main() -> None:
             )
             logger.info("started certstream", target_id=target.id)
 
-    backfill_task = asyncio.create_task(backfill_worker(pool, config, batch_size=100, batch_interval_ms=500))
-    logger.info("started backfill worker")
-
     pivot_task = asyncio.create_task(pivot_worker_pool(
         pool, n=3, batch_interval_ms=200
     ))
@@ -118,9 +114,7 @@ async def main() -> None:
     try:
         await server.serve()
     finally:
-        backfill_task.cancel()
         pivot_task.cancel()
-        await backfill_task
         await pivot_task
         await scheduler.shutdown()
         await close_pool(pool)
