@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -60,7 +61,13 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                             await store.mark_pivot_failed(job["id"], "no handler for pivot type")
                             continue
 
-                        results = await handler_fn(job, pool, http_client=shared_http, limiters=limiters)
+                        sig = inspect.signature(handler_fn)
+                        kwargs: dict = {}
+                        if "http_client" in sig.parameters:
+                            kwargs["http_client"] = shared_http
+                        if "limiters" in sig.parameters:
+                            kwargs["limiters"] = limiters
+                        results = await handler_fn(job, pool, **kwargs)
                         source_name = PIVOT_SOURCE_NAMES.get(job["pivot_type"], job["pivot_type"])
 
                         run_id = job["run_id"]
