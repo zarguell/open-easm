@@ -46,7 +46,8 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                         raw_json = json.dumps(meta)
                         await pool.execute(
                             """INSERT INTO raw_events (org_id, target_id, source, raw, event_hash, run_id)
-                               VALUES ($1, $2, $3, $4::jsonb, $5, $6)""",
+                               VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+                               ON CONFLICT (event_hash) DO NOTHING""",
                             job["org_id"], job["target_id"], handler.source_name,
                             raw_json, event_hash, job["run_id"],
                         )
