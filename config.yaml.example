@@ -1,3 +1,21 @@
+saas_providers:
+  rules:
+    - pattern: "*.amazonaws.com"
+      provider: aws
+      classification: saas-hosted
+    - pattern: "*.cloudfront.net"
+      provider: aws
+      classification: saas-hosted
+    - pattern: "*.azurewebsites.net"
+      provider: azure
+      classification: saas-hosted
+    - pattern: "*.googleapis.com"
+      provider: gcp
+      classification: saas-hosted
+    - pattern: "*.herokuapp.com"
+      provider: heroku
+      classification: saas-hosted
+
 targets:
   - id: corp-primary
     name: Example Corp Primary
