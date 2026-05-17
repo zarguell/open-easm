@@ -8,9 +8,13 @@ from easm.runners import (
     CrtShRunner,
     DnstwistRunner,
     GithubScanRunner,
+    NucleiRunner,
     PasteMonitorRunner,
+    PortScanRunner,
+    ScreenshotRunner,
     SearchEngineRunner,
     SubfinderRunner,
+    WappalyzerRunner,
     RUNNER_REGISTRY,
 )
 
@@ -20,6 +24,7 @@ def test_runner_registry_has_all_runners():
         "subfinder", "asnmap", "certstream", "crtsh", "dnstwist",
         "cloud_enum", "paste_monitor", "github_scan", "breach_monitor",
         "commoncrawl", "searchengine",
+        "wappalyzer", "screenshot", "portscan", "nuclei",
     }
 
 
