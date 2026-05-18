@@ -11,6 +11,22 @@ from easm.api.schemas import EventDetail, EventSummary
 router = APIRouter(prefix="/events", tags=["events"])
 
 
+@router.get("/count")
+async def count_events(
+    target_id: str | None = None,
+    source: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    store = get_store()
+    start_dt = datetime.fromisoformat(start) if start else None
+    end_dt = datetime.fromisoformat(end) if end else None
+    count = await store.count_events(
+        target_id=target_id, source=source, start=start_dt, end=end_dt,
+    )
+    return {"count": count}
+
+
 @router.get("", response_model=list[EventSummary])
 async def list_events(
     target_id: str | None = None,

@@ -11,6 +11,25 @@ from easm.api.schemas import RunDetail, RunSummary, RunTriggerResponse
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+@router.get("/count")
+async def count_runs(
+    target_id: str | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    trigger_type: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    store = get_store()
+    start_dt = datetime.fromisoformat(start) if start else None
+    end_dt = datetime.fromisoformat(end) if end else None
+    count = await store.count_runs(
+        target_id=target_id, source=source, status=status,
+        trigger_type=trigger_type, start=start_dt, end=end_dt,
+    )
+    return {"count": count}
+
+
 @router.get("", response_model=list[RunSummary])
 async def list_runs(
     target_id: str | None = None,

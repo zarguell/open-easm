@@ -16,6 +16,20 @@ class PatchFindingRequest(BaseModel):
     status: str
 
 
+@router.get("/findings/count")
+async def count_findings(
+    target_id: str | None = Query(None),
+    risk: str | None = Query(None),
+    status: str | None = Query(None),
+    rule_id: str | None = Query(None),
+    store: Store = Depends(get_store),
+):
+    count = await store.count_findings(
+        target_id=target_id, risk=risk, status=status, rule_id=rule_id,
+    )
+    return {"count": count}
+
+
 @router.get("/findings")
 async def list_findings(
     target_id: str | None = Query(None),

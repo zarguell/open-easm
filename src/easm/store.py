@@ -102,14 +102,16 @@ class Store:
 
     async def insert_raw_event(
         self, org_id: str, target_id: str, source: str, raw: Any, run_id: uuid.UUID
-    ) -> bool:
+    ) -> uuid.UUID | None:
+        """Insert a raw event. Returns the raw_event UUID on success, or ``None`` on dedup."""
         event_hash = _compute_event_hash(org_id, target_id, source, raw)
         raw_json = json.dumps(raw)
-        result = await self.pool.execute(
+        row = await self.pool.fetchrow(
             """
             INSERT INTO raw_events (org_id, target_id, source, raw, event_hash, run_id)
             VALUES ($1, $2, $3, $4::jsonb, $5, $6)
             ON CONFLICT (event_hash) DO NOTHING
+            RETURNING id
             """,
             org_id,
             target_id,
@@ -118,7 +120,9 @@ class Store:
             event_hash,
             run_id,
         )
-        return cast(bool, result != "INSERT 0 0")
+        if row is None:
+            return None
+        return cast(uuid.UUID, row["id"])
 
     async def list_events(
         self,
@@ -312,7 +316,7 @@ class Store:
         entity_type: str,
         entity_value: str,
         new_attributes: dict,
-        raw_event_id: uuid.UUID,
+        raw_event_id: uuid.UUID | None = None,
         discovery_session_id: uuid.UUID | None = None,
         discovery_run_id: uuid.UUID | None = None,
         discovery_pivot_id: uuid.UUID | None = None,
@@ -586,6 +590,159 @@ class Store:
         await self.pool.execute(
             "UPDATE pivot_queue SET status='pending' WHERE status='running'",
         )
+
+    async def count_pivot_jobs(
+        self,
+        status: str | None = None,
+        target_id: str | None = None,
+        entity_type: str | None = None,
+        pivot_type: str | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+        if status:
+            idx += 1
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if entity_type:
+            idx += 1
+            conditions.append(f"entity_type = ${idx}")
+            params.append(entity_type)
+        if pivot_type:
+            idx += 1
+            conditions.append(f"pivot_type = ${idx}")
+            params.append(pivot_type)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return await self.pool.fetchval(
+            f"SELECT COUNT(*) FROM pivot_queue {where}", *params,
+        ) or 0
+
+    async def count_runs(
+        self,
+        target_id: str | None = None,
+        source: str | None = None,
+        status: str | None = None,
+        trigger_type: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if source:
+            idx += 1
+            conditions.append(f"source = ${idx}")
+            params.append(source)
+        if status:
+            idx += 1
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+        if trigger_type:
+            idx += 1
+            conditions.append(f"trigger_type = ${idx}")
+            params.append(trigger_type)
+        if start:
+            idx += 1
+            conditions.append(f"started_at >= ${idx}")
+            params.append(start)
+        if end:
+            idx += 1
+            conditions.append(f"started_at <= ${idx}")
+            params.append(end)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return await self.pool.fetchval(
+            f"SELECT COUNT(*) FROM runs {where}", *params,
+        ) or 0
+
+    async def count_findings(
+        self,
+        target_id: str | None = None,
+        risk: str | None = None,
+        status: str | None = None,
+        rule_id: str | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if risk:
+            idx += 1
+            conditions.append(f"risk = ${idx}")
+            params.append(risk)
+        if status:
+            idx += 1
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+        if rule_id:
+            idx += 1
+            conditions.append(f"rule_id = ${idx}")
+            params.append(rule_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return await self.pool.fetchval(
+            f"SELECT COUNT(*) FROM findings {where}", *params,
+        ) or 0
+
+    async def count_events(
+        self,
+        target_id: str | None = None,
+        source: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if source:
+            idx += 1
+            conditions.append(f"source = ${idx}")
+            params.append(source)
+        if start:
+            idx += 1
+            conditions.append(f"collected_at >= ${idx}")
+            params.append(start)
+        if end:
+            idx += 1
+            conditions.append(f"collected_at <= ${idx}")
+            params.append(end)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return await self.pool.fetchval(
+            f"SELECT COUNT(*) FROM raw_events {where}", *params,
+        ) or 0
+
+    async def count_entities(
+        self,
+        target_id: str | None = None,
+        entity_type: str | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[Any] = []
+        if target_id:
+            conditions.append("target_id = $1")
+            params.append(target_id)
+        if entity_type:
+            idx = len(params) + 1
+            conditions.append(f"entity_type = ${idx}")
+            params.append(entity_type)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return await self.pool.fetchval(
+            f"SELECT COUNT(*) FROM entities {where}", *params,
+        ) or 0
 
     # ── Finding methods ───────────────────────────────────────────────
 

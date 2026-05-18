@@ -8,6 +8,40 @@ from easm.store import Store
 router = APIRouter(tags=["entities"])
 
 
+@router.get("/entities/count")
+async def count_entities(
+    target_id: str | None = Query(None),
+    entity_type: str | None = Query(None),
+    first_seen_since: str | None = Query(None),
+    last_seen_before: str | None = Query(None),
+    store: Store = Depends(get_store),
+):
+    conditions: list[str] = []
+    params: list[object] = []
+    idx = 0
+    if target_id:
+        idx += 1
+        conditions.append(f"target_id = ${idx}")
+        params.append(target_id)
+    if entity_type:
+        idx += 1
+        conditions.append(f"entity_type = ${idx}")
+        params.append(entity_type)
+    if first_seen_since:
+        idx += 1
+        conditions.append(f"first_seen_at >= ${idx}")
+        params.append(first_seen_since)
+    if last_seen_before:
+        idx += 1
+        conditions.append(f"last_seen_at <= ${idx}")
+        params.append(last_seen_before)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    count = await store.pool.fetchval(
+        f"SELECT COUNT(*) FROM entities {where}", *params,
+    ) or 0
+    return {"count": count}
+
+
 @router.get("/entities/counts")
 async def get_entity_counts(
     target_id: str | None = Query(None),

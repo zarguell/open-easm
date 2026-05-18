@@ -202,6 +202,7 @@ async def _ingest_entities(
     target_id: str,
     target: Any | None = None,
     pool: Any | None = None,
+    raw_event_id: uuid.UUID | None = None,
 ) -> None:
     try:
         entities, relationships = output_schema(raw)
@@ -212,7 +213,7 @@ async def _ingest_entities(
         try:
             entity_id, is_new = await store.upsert_entity(
                 org_id, target_id, ec.entity_type, ec.value,
-                ec.attributes, raw_event_id=run_id,
+                ec.attributes, raw_event_id=raw_event_id,
             )
             if is_new and target is not None and pool is not None:
                 try:
@@ -263,7 +264,7 @@ async def _ingest_entities(
                 rc.source_type, rc.source_value,
                 rc.target_type, rc.target_value,
                 rc.relationship_type, rc.relationship_source,
-                evidence_raw_event_id=run_id,
+                evidence_raw_event_id=raw_event_id,
             )
         except Exception:
             logger.exception("relationship upsert failed")
@@ -342,14 +343,15 @@ async def standard_subprocess_run(
             if raw is None:
                 continue
 
-            result = await store.insert_raw_event(
+            raw_event_id = await store.insert_raw_event(
                 target.org_id, target.id, source_name, raw, run_id,
             )
-            if result:
+            if raw_event_id is not None:
                 inserted += 1
                 if output_schema:
                     await _ingest_entities(store, output_schema, raw, run_id,
-                                          target.org_id, target.id, target=target)
+                                          target.org_id, target.id, target=target,
+                                          raw_event_id=raw_event_id)
             else:
                 deduped += 1
 
@@ -437,16 +439,17 @@ async def standard_http_run(
                         raw = transform_fn(record, item) if transform_fn else record
                         if raw is None:
                             continue
-                        result = await store.insert_raw_event(
+                        raw_event_id = await store.insert_raw_event(
                             target.org_id, target.id, source_name, raw, run_id,
                         )
-                        if result:
+                        if raw_event_id is not None:
                             ins += 1
                             if output_schema:
                                 await _ingest_entities(
                                     store, output_schema, raw, run_id,
                                     target.org_id, target.id,
                                     target=target, pool=pool or store.pool,
+                                    raw_event_id=raw_event_id,
                                 )
                         else:
                             ded += 1
@@ -492,14 +495,15 @@ async def standard_http_run(
                     raw = transform_fn(record, item) if transform_fn else record
                     if raw is None:
                         continue
-                    result = await store.insert_raw_event(
+                    raw_event_id = await store.insert_raw_event(
                         target.org_id, target.id, source_name, raw, run_id,
                     )
-                    if result:
+                    if raw_event_id is not None:
                         inserted += 1
                         if output_schema:
                             await _ingest_entities(store, output_schema, raw, run_id,
-                                                  target.org_id, target.id, target=target)
+                                                  target.org_id, target.id, target=target,
+                                                  raw_event_id=raw_event_id)
                     else:
                         deduped += 1
 

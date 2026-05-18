@@ -148,3 +148,18 @@ async def list_pivot_queue(
 
     next_cursor = str(results[-1]["id"]) if has_more and results else None
     return {"jobs": jobs, "next_cursor": next_cursor}
+
+
+@router.get("/count")
+async def count_pivot_queue(
+    status: str | None = Query(None),
+    target_id: str | None = Query(None),
+    entity_type: str | None = Query(None),
+    pivot_type: str | None = Query(None),
+):
+    store = get_store()
+    count = await store.count_pivot_jobs(
+        status=status, target_id=target_id,
+        entity_type=entity_type, pivot_type=pivot_type,
+    )
+    return {"count": count}

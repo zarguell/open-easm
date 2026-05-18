@@ -96,6 +96,7 @@ async def pivot_worker_pool(
                                 "pivot", org_id=job["org_id"],
                             )
 
+                        raw_event_ids: list = []
                         for raw_result in results:
                             meta = {
                                 "_meta": {
@@ -112,14 +113,16 @@ async def pivot_worker_pool(
                                 job["org_id"], job["target_id"], source_name, meta,
                             )
                             raw_json = json.dumps(meta)
-                            await pool.execute(
+                            raw_event_uuid = await pool.fetchval(
                                 """INSERT INTO raw_events
                                    (org_id, target_id, source, raw, event_hash, run_id)
                                    VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-                                   ON CONFLICT (event_hash) DO NOTHING""",
+                                   ON CONFLICT (event_hash) DO NOTHING
+                                   RETURNING id""",
                                 job["org_id"], job["target_id"], source_name,
                                 raw_json, event_hash, run_id,
                             )
+                            raw_event_ids.append(raw_event_uuid)
 
                         await store.mark_pivot_completed(job["id"])
 
@@ -134,7 +137,8 @@ async def pivot_worker_pool(
                             source_name or job["pivot_type"],
                         )
                         if schema_fn:
-                            for raw_result in results:
+                            for i, raw_result in enumerate(results):
+                                re_id = raw_event_ids[i] if i < len(raw_event_ids) else None
                                 try:
                                     entities, rels = schema_fn(raw_result)
                                     for ec in entities:
@@ -142,7 +146,7 @@ async def pivot_worker_pool(
                                             entity_id, is_new = await store.upsert_entity(
                                                 job["org_id"], job["target_id"],
                                                 ec.entity_type, ec.value,
-                                                ec.attributes, raw_event_id=run_id,
+                                                ec.attributes, raw_event_id=re_id,
                                             )
                                             if is_new and target_config:
                                                 try:
@@ -173,6 +177,7 @@ async def pivot_worker_pool(
                                                 rc.source_type, rc.source_value,
                                                 rc.target_type, rc.target_value,
                                                 rc.relationship_type, rc.relationship_source,
+                                                evidence_raw_event_id=re_id,
                                             )
                                         except Exception:
                                             logger.debug(
