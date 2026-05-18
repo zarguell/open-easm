@@ -311,15 +311,30 @@ def shodan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
     if not ip:
         return [], []
     s = raw.get("shodan", raw)
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {
-        "source": "shodan", "ports": s.get("ports", []),
-        "hostnames": s.get("hostnames", []), "domains": s.get("domains", []),
-        "cpes": [c for c in s.get("cpes", []) if isinstance(c, str)],
-        "vulnerabilities": [v for v in s.get("vulns", []) if isinstance(v, str)],
-        "org": s.get("org", ""), "isp": s.get("isp", ""), "asn": s.get("asn", ""),
-        "country": s.get("country_name", ""), "city": s.get("city", ""),
-        "os": s.get("os", ""), "services": s.get("data", []),
-    })], []
+    ni = normalize_entity_value("ip", ip)
+    entities: list[EntityCandidate] = [
+        EntityCandidate("ip", ni, {
+            "source": "shodan", "ports": s.get("ports", []),
+            "hostnames": s.get("hostnames", []), "domains": s.get("domains", []),
+            "cpes": [c for c in s.get("cpes", []) if isinstance(c, str)],
+            "vulnerabilities": [v for v in s.get("vulns", []) if isinstance(v, str)],
+            "org": s.get("org", ""), "isp": s.get("isp", ""), "asn": s.get("asn", ""),
+            "country": s.get("country_name", ""), "city": s.get("city", ""),
+            "os": s.get("os", ""), "services": s.get("data", []),
+        })
+    ]
+    rels: list[RelationshipCandidate] = []
+    for h in s.get("hostnames", []):
+        if h:
+            nh = normalize_entity_value("hostname", h)
+            entities.append(EntityCandidate("hostname", nh, {"source": "shodan"}))
+            rels.append(RelationshipCandidate("ip", ni, "hostname", nh, "reverse_of", "pivot"))
+    for d in s.get("domains", []):
+        if d:
+            nd = normalize_entity_value("domain", d)
+            entities.append(EntityCandidate("domain", nd, {"source": "shodan"}))
+            rels.append(RelationshipCandidate("ip", ni, "domain", nd, "belongs_to", "pivot"))
+    return entities, rels
 
 
 def abuseipdb(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -436,6 +451,25 @@ def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[Relations
     })], []
 
 
+def ripe_stat(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
+    asn_val = raw.get("asn", "").strip()
+    ip_val = raw.get("ip", "").strip()
+    if not asn_val or not ip_val:
+        return [], []
+    n_asn = normalize_entity_value("asn", asn_val)
+    n_ip = normalize_entity_value("ip", ip_val)
+    entities = [
+        EntityCandidate("asn", n_asn, {
+            "source": "ripe_stat", "as_name": raw.get("as_name", ""),
+        }),
+        EntityCandidate("ip", n_ip, {"source": "ripe_stat"}),
+    ]
+    rels = [
+        RelationshipCandidate("ip", n_ip, "asn", n_asn, "hosted_in", "pivot"),
+    ]
+    return entities, rels
+
+
 def _noop(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     return [], []
 
@@ -449,7 +483,7 @@ OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {
     "dns_mail_records": dns_mail_records, "shodan": shodan, "abuseipdb": abuseipdb,
     "greynoise": greynoise, "urlscan": urlscan, "censys": censys,
     "securitytrails": passive_dns, "cloud_enum": cloud_bucket, "searchengine": searchengine,
-    "takeover": subdomain_takeover,
+    "takeover": subdomain_takeover, "ripe_stat": ripe_stat,
     "paste_monitor": _noop, "gist_monitor": _noop, "stackoverflow_monitor": _noop,
     "discord_monitor": _noop, "github_scan": _noop, "breach_monitor": _noop,
     "reverse_whois": _noop,
@@ -525,7 +559,20 @@ def shodan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
     ip = raw.get("ip", "").strip()
     if not ip: return [], []
     s = raw.get("shodan", raw)
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"shodan","ports":s.get("ports",[]),"hostnames":s.get("hostnames",[]),"domains":s.get("domains",[]),"cpes":[c for c in s.get("cpes",[]) if isinstance(c,str)],"vulnerabilities":[v for v in s.get("vulns",[]) if isinstance(v,str)],"org":s.get("org",""),"isp":s.get("isp",""),"asn":s.get("asn",""),"country":s.get("country_name",""),"city":s.get("city",""),"os":s.get("os",""),"services":s.get("data",[])})], []
+    ni = normalize_entity_value("ip", ip)
+    entities: list[EntityCandidate] = [EntityCandidate("ip", ni, {"source":"shodan","ports":s.get("ports",[]),"hostnames":s.get("hostnames",[]),"domains":s.get("domains",[]),"cpes":[c for c in s.get("cpes",[]) if isinstance(c,str)],"vulnerabilities":[v for v in s.get("vulns",[]) if isinstance(v,str)],"org":s.get("org",""),"isp":s.get("isp",""),"asn":s.get("asn",""),"country":s.get("country_name",""),"city":s.get("city",""),"os":s.get("os",""),"services":s.get("data",[])})]
+    rels: list[RelationshipCandidate] = []
+    for h in s.get("hostnames", []):
+        if h:
+            nh = normalize_entity_value("hostname", h)
+            entities.append(EntityCandidate("hostname", nh, {"source":"shodan"}))
+            rels.append(RelationshipCandidate("ip", ni, "hostname", nh, "reverse_of", "pivot"))
+    for d in s.get("domains", []):
+        if d:
+            nd = normalize_entity_value("domain", d)
+            entities.append(EntityCandidate("domain", nd, {"source":"shodan"}))
+            rels.append(RelationshipCandidate("ip", ni, "domain", nd, "belongs_to", "pivot"))
+    return entities, rels
 
 def abuseipdb(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     ip = raw.get("ip", "").strip(); a = raw.get("abuseipdb")
@@ -587,6 +634,7 @@ OUTPUT_SCHEMAS = {
     "shodan": shodan, "abuseipdb": abuseipdb, "greynoise": greynoise,
     "urlscan": urlscan, "censys": censys, "securitytrails": passive_dns,
     "cloud_enum": cloud_bucket, "searchengine": searchengine, "takeover": subdomain_takeover,
+    "ripe_stat": ripe_stat,
     "paste_monitor": _noop, "gist_monitor": _noop, "stackoverflow_monitor": _noop,
     "discord_monitor": _noop, "github_scan": _noop, "breach_monitor": _noop,
     "reverse_whois": _noop,

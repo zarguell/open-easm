@@ -640,6 +640,48 @@ async def censys_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | Non
     }}]
 
 
+async def ip_to_asn(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
+                    limiters=None) -> list[dict[str, Any]]:
+    import ipaddress
+    ip = job["entity_value"]
+    results: list[dict[str, Any]] = []
+    try:
+        network = ipaddress.ip_network(ip, strict=False)
+        if network.num_addresses > 1:
+            return [{"ip": ip, "message": "ip_to_asn skipped for ranges"}]
+    except ValueError:
+        pass
+
+    url = f"https://stat.ripe.net/data/network-info/data.json?resource={ip}"
+    if http_client is not None:
+        resp = await http_client.get(url, timeout=15.0)
+        if resp.status_code != 200:
+            return [{"ip": ip, "message": "ripe stat lookup failed"}]
+        data = resp.json()
+    else:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return [{"ip": ip, "message": "ripe stat lookup failed"}]
+            data = resp.json()
+
+    infos = data.get("data", {}).get("asns", [])
+    if not infos:
+        return [{"ip": ip, "message": "no asn data found"}]
+
+    for info in infos:
+        asn_num = info.get("asn")
+        holder = info.get("holder", "")
+        if asn_num:
+            results.append({
+                "ip": ip,
+                "asn": f"AS{asn_num}",
+                "as_name": holder,
+                "source": "ripe_stat",
+            })
+    return results if results else [{"ip": ip, "message": "no asn data found"}]
+
+
 # ---------------------------------------------------------------------------
 # Registry: pivot_type → handler function
 # ---------------------------------------------------------------------------
@@ -664,6 +706,7 @@ PIVOT_HANDLER_REGISTRY: dict[str, Any] = {
     "urlscan_enrich": urlscan_enrich,
     "censys_enrich": censys_enrich,
     "cpe_vuln_enrich": cpe_vuln_enrich,
+    "ip_to_asn": ip_to_asn,
 }
 
 # Source name mapping (pivot_type → source_name) for use by worker
@@ -687,4 +730,5 @@ PIVOT_SOURCE_NAMES: dict[str, str] = {
     "urlscan_enrich": "urlscan",
     "censys_enrich": "censys",
     "cpe_vuln_enrich": "cpe_vuln_enrich",
+    "ip_to_asn": "ripe_stat",
 }

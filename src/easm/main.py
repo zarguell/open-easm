@@ -113,7 +113,7 @@ async def main() -> None:
             logger.info("started certstream", target_id=target.id)
 
     pivot_task = asyncio.create_task(pivot_worker_pool(
-        pool, n=3, batch_interval_ms=200
+        pool, config=config, n=3, batch_interval_ms=200
     ))
     logger.info("started pivot worker pool")
 

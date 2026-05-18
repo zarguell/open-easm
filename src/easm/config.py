@@ -95,7 +95,7 @@ VALID_PIVOT_TYPES = {
     "abuseipdb_enrich",
     "urlscan_enrich",
     "censys_enrich", "reverse_whois", "passive_dns", "subdomain_takeover",
-    "cpe_vuln_enrich",
+    "cpe_vuln_enrich", "ip_to_asn",
 }
 
 

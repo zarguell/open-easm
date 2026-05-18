@@ -242,3 +242,10 @@ targets:
           to: ip
           via: cpe_vuln_enrich
           cooldown_hours: 24
+        - from: ip
+          to: asn
+          via: ip_to_asn
+        - from: ip
+          to: hostname
+          via: reverse_dns
+          cooldown_hours: 24

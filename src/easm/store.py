@@ -339,6 +339,7 @@ class Store:
             )
             return existing["id"], False
         else:
+            new_attributes.setdefault("triage_state", "discovered")
             entity_id = await self.pool.fetchval(
                 """
                 INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
@@ -380,6 +381,122 @@ class Store:
             relationship_type, relationship_source,
             evidence_raw_event_id, runner,
         )
+
+    async def upsert_relationship_by_value(
+        self,
+        org_id: str,
+        target_id: str,
+        source_type: str,
+        source_value: str,
+        target_type: str,
+        target_value: str,
+        relationship_type: str,
+        relationship_source: str,
+        evidence_raw_event_id: uuid.UUID | None = None,
+        runner: str | None = None,
+    ) -> None:
+        """Like :meth:`upsert_relationship` but resolves entity UUIDs by type+value."""
+        src = normalize_entity_value(source_type, source_value)
+        tgt = normalize_entity_value(target_type, target_value)
+
+        source_row = await self.pool.fetchrow(
+            "SELECT id FROM entities "
+            "WHERE org_id=$1 AND target_id=$2 "
+            "AND entity_type=$3 AND entity_value=$4",
+            org_id, target_id, source_type, src,
+        )
+        target_row = await self.pool.fetchrow(
+            "SELECT id FROM entities "
+            "WHERE org_id=$1 AND target_id=$2 "
+            "AND entity_type=$3 AND entity_value=$4",
+            org_id, target_id, target_type, tgt,
+        )
+        if source_row and target_row:
+            await self.upsert_relationship(
+                org_id,
+                source_row["id"],
+                target_row["id"],
+                relationship_type,
+                relationship_source,
+                evidence_raw_event_id=evidence_raw_event_id,
+                runner=runner,
+            )
+        else:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "upsert_relationship_by_value skipped: "
+                "source=%s/%s found=%s, target=%s/%s found=%s",
+                source_type, src, source_row is not None,
+                target_type, tgt, target_row is not None,
+            )
+
+    async def get_triage_inbox(
+        self,
+        org_id: str,
+        target_id: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        where_clauses = ["e.org_id = $1", "e.attributes->>'triage_state' = 'discovered'"]
+        params: list[Any] = [org_id]
+        idx = 2
+        if target_id:
+            where_clauses.append(f"e.target_id = ${idx}")
+            params.append(target_id)
+            idx += 1
+        if entity_type:
+            where_clauses.append(f"e.entity_type = ${idx}")
+            params.append(entity_type)
+            idx += 1
+        params.append(limit)
+        params.append(offset)
+        rows = await self.pool.fetch(
+            f"""SELECT e.*, count(*) OVER() as total_count
+                FROM entities e
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY e.first_seen_at DESC
+                LIMIT ${idx} OFFSET ${idx + 1}""",
+            *params,
+        )
+        return [dict(r) for r in rows]
+
+    async def set_entity_triage_state(
+        self,
+        org_id: str,
+        entity_id: uuid.UUID,
+        triage_state: str,
+    ) -> bool:
+        valid_states = {"discovered", "adopted", "dismissed", "active"}
+        if triage_state not in valid_states:
+            return False
+        result = await self.pool.execute(
+            """UPDATE entities SET attributes = jsonb_set(attributes, '{triage_state}', $1::jsonb)
+               WHERE org_id = $2 AND id = $3""",
+            json.dumps(triage_state), org_id, entity_id,
+        )
+        return result.endswith("1")
+
+    async def get_active_scan_targets(
+        self,
+        org_id: str,
+        target_id: str,
+        entity_types: list[str] | None = None,
+    ) -> list[dict]:
+        type_filter = ""
+        if entity_types:
+            placeholders = ",".join(f"'{t}'" for t in entity_types)
+            type_filter = f"AND entity_type IN ({placeholders})"
+        rows = await self.pool.fetch(
+            f"""SELECT entity_type, entity_value, attributes
+                FROM entities
+                WHERE org_id = $1 AND target_id = $2
+                  AND attributes->>'triage_state' = 'active'
+                  {type_filter}
+                ORDER BY last_seen_at DESC""",
+            org_id, target_id,
+        )
+        return [dict(r) for r in rows]
 
     # ── Pivot methods ─────────────────────────────────────────────────
 

@@ -5,13 +5,16 @@ import inspect
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from easm.correlation.engine import CorrelationEngine
 from easm.correlation.loader import load_rules_from_dir
 from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY, PIVOT_SOURCE_NAMES
+from easm.pivot.resolver import PivotResolver
 from easm.rate_limiter import get_default_limiters
+from easm.runners.schemas import OUTPUT_SCHEMAS
 from easm.store import Store, _compute_event_hash
 
 logger = logging.getLogger(__name__)
@@ -41,7 +44,18 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
         logger.exception("correlation engine failed")
 
 
-async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
+def _resolve_target_config(config: Any | None, target_id: str) -> Any | None:
+    if config is None:
+        return None
+    for t in config.targets:
+        if t.id == target_id:
+            return t
+    return None
+
+
+async def pivot_worker_pool(
+    pool, config: Any | None = None, n: int = 3, batch_interval_ms: int = 200,
+):
     store = Store(pool)
     await store.reset_orphaned_pivot_jobs()
 
@@ -51,6 +65,7 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
     )
 
     limiters = get_default_limiters()
+    resolver = PivotResolver(pool)
 
     async def worker_loop():
         while True:
@@ -71,6 +86,8 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                             kwargs["limiters"] = limiters
                         results = await handler_fn(job, pool, **kwargs)
                         source_name = PIVOT_SOURCE_NAMES.get(job["pivot_type"], job["pivot_type"])
+                        if source_name is None:
+                            source_name = job["pivot_type"]
 
                         run_id = job["run_id"]
                         if not run_id:
@@ -103,7 +120,70 @@ async def pivot_worker_pool(pool, n: int = 3, batch_interval_ms: int = 200):
                                 job["org_id"], job["target_id"], source_name,
                                 raw_json, event_hash, run_id,
                             )
+
                         await store.mark_pivot_completed(job["id"])
+
+                        target_config = None
+                        if config:
+                            for t in config.targets:
+                                if t.id == job["target_id"]:
+                                    target_config = t
+                                    break
+
+                        schema_fn = OUTPUT_SCHEMAS.get(
+                            source_name or job["pivot_type"],
+                        )
+                        if schema_fn:
+                            for raw_result in results:
+                                try:
+                                    entities, rels = schema_fn(raw_result)
+                                    for ec in entities:
+                                        try:
+                                            entity_id, is_new = await store.upsert_entity(
+                                                job["org_id"], job["target_id"],
+                                                ec.entity_type, ec.value,
+                                                ec.attributes, raw_event_id=run_id,
+                                            )
+                                            if is_new and target_config:
+                                                try:
+                                                    await resolver.check_and_enqueue(
+                                                        target_config,
+                                                        ec.entity_type, ec.value,
+                                                        entity_id,
+                                                        depth=job.get("depth", 1) + 1,
+                                                        parent_entity_id=job["entity_id"],
+                                                        discovery_session_id=(
+                                                            job.get("discovery_session_id")
+                                                        ),
+                                                    )
+                                                except Exception:
+                                                    logger.debug(
+                                                        "recursive pivot failed",
+                                                        exc_info=True,
+                                                    )
+                                        except Exception:
+                                            logger.debug(
+                                                "entity upsert from pivot failed",
+                                                exc_info=True,
+                                            )
+                                    for rc in rels:
+                                        try:
+                                            await store.upsert_relationship_by_value(
+                                                job["org_id"], job["target_id"],
+                                                rc.source_type, rc.source_value,
+                                                rc.target_type, rc.target_value,
+                                                rc.relationship_type, rc.relationship_source,
+                                            )
+                                        except Exception:
+                                            logger.debug(
+                                                "relationship upsert from pivot failed",
+                                                exc_info=True,
+                                            )
+                                except Exception:
+                                    logger.debug(
+                                        "output schema failed for pivot result",
+                                        exc_info=True,
+                                    )
                     except httpx.TransportError:
                         logger.exception(
                             "pivot transient error, will retry: "

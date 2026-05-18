@@ -200,6 +200,8 @@ async def _ingest_entities(
     run_id: uuid.UUID,
     org_id: str,
     target_id: str,
+    target: Any | None = None,
+    pool: Any | None = None,
 ) -> None:
     try:
         entities, relationships = output_schema(raw)
@@ -208,18 +210,60 @@ async def _ingest_entities(
         return
     for ec in entities:
         try:
-            await store.upsert_entity(
+            entity_id, is_new = await store.upsert_entity(
                 org_id, target_id, ec.entity_type, ec.value,
                 ec.attributes, raw_event_id=run_id,
             )
+            if is_new and target is not None and pool is not None:
+                try:
+                    from easm.classify import classify_entity
+                    classification = classify_entity(
+                        ec.entity_type, ec.value,
+                        target_domains=(
+                            list(target.match_rules.domains)
+                            if hasattr(target, "match_rules")
+                            else None
+                        ),
+                        saas_rules=(
+                            target.saas_providers
+                            if hasattr(target, "saas_providers")
+                            else None
+                        ),
+                    )
+                    if classification.classification != "org-owned":
+                        await pool.execute(
+                            "UPDATE entities SET attributes "
+                            "|| $1::jsonb WHERE id = $2",
+                            json.dumps(classification.to_dict()),
+                            entity_id,
+                        )
+                except Exception:
+                    logger.debug("classification failed for %s", ec.value, exc_info=True)
+
+                try:
+                    from easm.pivot.resolver import PivotResolver
+                    resolver = PivotResolver(pool)
+                    await resolver.check_and_enqueue(
+                        target, ec.entity_type, ec.value, entity_id,
+                        depth=1,
+                        discovery_session_id=run_id,
+                    )
+                except Exception:
+                    logger.debug(
+                        "pivot enqueue failed for %s/%s",
+                        ec.entity_type, ec.value,
+                        exc_info=True,
+                    )
         except Exception:
             logger.exception("entity upsert failed")
     for rc in relationships:
         try:
-            await store.upsert_relationship(
-                org_id, rc.source_type, rc.target_type,
-                rc.source_value, rc.target_value,
+            await store.upsert_relationship_by_value(
+                org_id, target_id,
+                rc.source_type, rc.source_value,
+                rc.target_type, rc.target_value,
                 rc.relationship_type, rc.relationship_source,
+                evidence_raw_event_id=run_id,
             )
         except Exception:
             logger.exception("relationship upsert failed")
@@ -244,6 +288,7 @@ async def standard_subprocess_run(
     timeout: int = 300,
     transform_fn: Callable[[dict, str], dict | None] | None = None,
     output_schema: Any | None = None,
+    pool: Any | None = None,
 ) -> tuple[int, int, int]:
     """Generic subprocess runner for tools that output JSON-lines on stdout.
 
@@ -294,7 +339,7 @@ async def standard_subprocess_run(
                 inserted += 1
                 if output_schema:
                     await _ingest_entities(store, output_schema, raw, run_id,
-                                          target.org_id, target.id)
+                                          target.org_id, target.id, target=target)
             else:
                 deduped += 1
 
@@ -323,6 +368,7 @@ async def standard_http_run(
     retry_statuses: tuple[int, ...] = (),
     inter_delay: float = 0.0,
     max_concurrent: int = 1,
+    pool: Any | None = None,
 ) -> tuple[int, int, int]:
     """Generic HTTP runner with optional retry, rate-limiting, and concurrency.
 
@@ -390,6 +436,7 @@ async def standard_http_run(
                                 await _ingest_entities(
                                     store, output_schema, raw, run_id,
                                     target.org_id, target.id,
+                                    target=target, pool=pool or store.pool,
                                 )
                         else:
                             ded += 1
@@ -442,7 +489,7 @@ async def standard_http_run(
                         inserted += 1
                         if output_schema:
                             await _ingest_entities(store, output_schema, raw, run_id,
-                                                  target.org_id, target.id)
+                                                  target.org_id, target.id, target=target)
                     else:
                         deduped += 1
 
