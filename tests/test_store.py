@@ -117,17 +117,17 @@ async def test_save_config_snapshot_does_not_error(store):
 async def test_insert_raw_event_with_org_id(store):
     run_id = await store.create_run("test-target", "subfinder", "scheduled")
     inserted = await store.insert_raw_event(
-        org_id="test-org",
+        org_id="default",
         target_id="test-target",
         source="subfinder",
         raw={"domain": "example.com"},
         run_id=run_id,
     )
-    assert inserted is True
+    assert isinstance(inserted, uuid.UUID)
     events, _ = await store.list_events(target_id="test-target")
     assert len(events) == 1
     assert events[0]["raw"] == {"domain": "example.com"}
-    assert events[0]["org_id"] == "test-org"
+    assert events[0]["org_id"] == "default"
 
 
 @pytest.mark.asyncio

@@ -572,7 +572,9 @@ class Store:
                 "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1",
                 row["id"],
             )
-            jobs.append(dict(row))
+            job = dict(row)
+            job["status"] = "running"
+            jobs.append(job)
         return jobs
 
     async def mark_pivot_completed(self, job_id: uuid.UUID) -> None:

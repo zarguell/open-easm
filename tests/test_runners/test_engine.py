@@ -17,7 +17,10 @@ def _make_target(domains=None):
 
 def _make_store(insert_result=True):
     store = AsyncMock()
-    store.insert_raw_event.return_value = insert_result
+    if insert_result is True:
+        store.insert_raw_event.return_value = uuid.uuid4()
+    else:
+        store.insert_raw_event.return_value = insert_result
     return store
 
 
