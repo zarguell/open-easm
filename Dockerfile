@@ -1,5 +1,5 @@
 # ── Stage 1: Build the React UI ──
-FROM node:22-slim AS ui-builder
+FROM node:24-slim AS ui-builder
 
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json* ./
