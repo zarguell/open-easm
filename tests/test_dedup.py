@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -17,10 +18,10 @@ async def test_duplicate_event_returns_false(store):
 
     raw = {"host": "test.example.com", "source": "subfinder"}
     first = await store.insert_raw_event("default", "t", "subfinder", raw, run_id)
-    assert first is True
+    assert isinstance(first, uuid.UUID)
 
     second = await store.insert_raw_event("default", "t", "subfinder", raw, run_id)
-    assert second is False
+    assert second is None
 
 
 @pytest.mark.asyncio
@@ -32,10 +33,10 @@ async def test_different_key_order_same_hash(store):
     raw_b = {"b": 2, "a": 1}
 
     first = await store.insert_raw_event("default", "t", "subfinder", raw_a, run_id)
-    assert first is True
+    assert isinstance(first, uuid.UUID)
 
     second = await store.insert_raw_event("default", "t", "subfinder", raw_b, run_id)
-    assert second is False
+    assert second is None
 
 
 @pytest.mark.asyncio
@@ -48,10 +49,10 @@ async def test_different_targets_same_raw_different_events(store):
     raw = {"host": "shared.example.com"}
 
     first = await store.insert_raw_event("default", "target-a", "subfinder", raw, run_id_a)
-    assert first is True
+    assert isinstance(first, uuid.UUID)
 
     second = await store.insert_raw_event("default", "target-b", "subfinder", raw, run_id_b)
-    assert second is True
+    assert isinstance(second, uuid.UUID)
 
 
 @pytest.mark.asyncio
@@ -64,7 +65,7 @@ async def test_same_target_different_source_different_events(store):
     raw = {"host": "same.example.com"}
 
     first = await store.insert_raw_event("default", "t", "subfinder", raw, run_id_a)
-    assert first is True
+    assert isinstance(first, uuid.UUID)
 
     second = await store.insert_raw_event("default", "t", "certstream", raw, run_id_b)
-    assert second is True
+    assert isinstance(second, uuid.UUID)

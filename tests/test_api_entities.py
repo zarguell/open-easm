@@ -28,7 +28,7 @@ async def test_api(test_config, db_pool, scheduler):
     deps.set_store(Store(db_pool))
     deps.set_scheduler(scheduler)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test/api") as client:
         yield client
 
 

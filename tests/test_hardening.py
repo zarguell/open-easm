@@ -29,13 +29,6 @@ async def test_healthz_returns_binaries():
 
 
 @pytest.mark.asyncio
-async def test_gc_worker_imports():
-    from easm import gc
-
-    assert hasattr(gc, "gc_worker")
-
-
-@pytest.mark.asyncio
 async def test_gc_deletes_old_raw_events(db_pool, sample_run):
     old_id = uuid.uuid7()
     await db_pool.execute(

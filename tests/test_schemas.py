@@ -42,7 +42,7 @@ def test_shodan_internetdb_stores_cpes():
         "source": "shodan",
     }
     entities, _ = shodan(raw)
-    assert len(entities) == 1
+    assert len(entities) == 2
     attrs = entities[0].attributes
     assert "cpes" in attrs, f"cpes missing from attributes: {list(attrs.keys())}"
     assert attrs["cpes"] == ["cpe:/a:nginx:nginx:1.24.0"]

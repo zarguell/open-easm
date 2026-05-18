@@ -106,9 +106,9 @@ async def test_breach_monitor_hibp_rate_limited(target, mock_store):
 async def test_breach_monitor_dehashed_check(target, mock_store):
     from easm.runners.breach_monitor_runner import BreachMonitorRunner
 
-    target.runners["breach_monitor"]["sources"] = ["dehashed"]
-    target.runners["breach_monitor"]["dehashed_api_key"] = "fake-key"
-    target.runners["breach_monitor"]["dehashed_email"] = "test@example.com"
+    target.runners["breach_monitor"].sources = ["dehashed"]
+    target.runners["breach_monitor"].dehashed_api_key = "fake-key"
+    target.runners["breach_monitor"].dehashed_email = "test@example.com"
 
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_resp = MagicMock()

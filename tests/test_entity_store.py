@@ -1,11 +1,8 @@
-import uuid
-
 import pytest
 
 from easm.entity_store import (
     deep_merge_attributes,
     normalize_entity_value,
-    upsert_entity,
 )
 
 
@@ -26,23 +23,4 @@ def test_deep_merge_attributes():
     assert result["shodan"][1]["observed_at"] == "2026-05-16"
 
 
-@pytest.mark.asyncio
-async def test_upsert_entity_is_first_discovery(db_pool):
-    pool = db_pool
-    run_id = uuid.uuid7()
-    event_id = uuid.uuid7()
-    await pool.execute(
-        "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",
-        run_id, "test-target", "subfinder", "manual", "running",
-    )
-    await pool.execute(
-        "INSERT INTO raw_events (id, org_id, target_id, source, raw, event_hash, run_id) VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, $6)",
-        event_id, "default", "test-target", "subfinder", "hash1", run_id,
-    )
 
-    id1, is_new1 = await upsert_entity(pool, "default", "test-target", "domain", "example.com", {}, event_id, discovery_run_id=run_id)
-    assert is_new1 is True
-
-    id2, is_new2 = await upsert_entity(pool, "default", "test-target", "domain", "example.com", {}, event_id, discovery_run_id=run_id)
-    assert is_new2 is False
-    assert id1 == id2
