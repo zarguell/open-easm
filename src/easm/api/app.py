@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 
 from easm.api.routes import (
     alerts as alerts_route,
+    assets,
+    certificates,
     config as config_route,
     entities,
     events,
@@ -62,6 +64,8 @@ def create_app() -> FastAPI:
     app.include_router(config_route.router, prefix="/api")
     app.include_router(pivot_queue.router, prefix="/api")
     app.include_router(findings_route.router, prefix="/api")
+    app.include_router(certificates.router, prefix="/api")
+    app.include_router(assets.router, prefix="/api")
     app.include_router(alerts_route.router, prefix="/api")
     app.include_router(triage_route.router)
 

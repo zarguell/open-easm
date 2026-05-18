@@ -80,3 +80,48 @@ async def test_enqueues_when_queue_not_full():
     )
 
     resolver.store.enqueue_pivot_job.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_check_cooldown_returns_fetchval_row():
+    mock_pool = AsyncMock()
+    mock_pool.fetchval.return_value = 1
+    resolver = PivotResolver(mock_pool)
+
+    result = await resolver._check_cooldown(
+        "test-org", "domain", "example.com", "crtsh_search", 24,
+    )
+
+    assert result == 1
+
+
+@pytest.mark.asyncio
+async def test_check_apex_coverage_returns_fetchval_row():
+    mock_pool = AsyncMock()
+    mock_pool.fetchval.return_value = 1
+    resolver = PivotResolver(mock_pool)
+
+    result = await resolver._check_apex_coverage(
+        "test-org", "example.com", "crtsh_search", 24,
+    )
+
+    assert result == 1
+
+
+@pytest.mark.asyncio
+async def test_insert_skipped_includes_required_entity_id():
+    mock_pool = AsyncMock()
+    resolver = PivotResolver(mock_pool)
+    entity_id = uuid.uuid4()
+
+    await resolver._insert_skipped(
+        "test-org", "target-1", "domain", "www.example.com", entity_id,
+        "crtsh_search", "covered_by_apex:example.com",
+    )
+
+    sql = mock_pool.execute.call_args.args[0]
+    assert "entity_id" in sql
+    mock_pool.execute.assert_awaited_once_with(
+        sql, "test-org", "target-1", "domain", "www.example.com", entity_id,
+        "crtsh_search", "covered_by_apex:example.com",
+    )

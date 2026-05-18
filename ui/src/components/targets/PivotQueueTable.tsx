@@ -28,15 +28,19 @@ const ENTITY_TYPES = ['asn', 'ip_range', 'ip', 'hostname', 'domain', 'certificat
 
 export const PivotQueueTable: FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('')
+  const [pivotTypeFilter, setPivotTypeFilter] = useState<string>('')
   const [showTrigger, setShowTrigger] = useState(false)
   const { data, isLoading, isError, error, refetch } = usePivotQueue({
     status: statusFilter || undefined,
+    entity_type: entityTypeFilter || undefined,
+    pivot_type: pivotTypeFilter || undefined,
     limit: 50,
   })
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         {STATUS_OPTIONS.map((opt) => (
           <button
             key={opt}
@@ -50,6 +54,28 @@ export const PivotQueueTable: FC = () => {
             {opt || 'all'}
           </button>
         ))}
+        <select
+          value={entityTypeFilter}
+          onChange={(e) => setEntityTypeFilter(e.target.value)}
+          className="rounded border border-hairline bg-canvas-soft px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink"
+          aria-label="Filter by entity type"
+        >
+          <option value="">all entities</option>
+          {ENTITY_TYPES.map((type) => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
+        <select
+          value={pivotTypeFilter}
+          onChange={(e) => setPivotTypeFilter(e.target.value)}
+          className="max-w-56 rounded border border-hairline bg-canvas-soft px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink"
+          aria-label="Filter by pivot type"
+        >
+          <option value="">all pivots</option>
+          {PIVOT_TYPES.map((type) => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
         <div className="flex-1" />
         <button
           onClick={() => setShowTrigger(!showTrigger)}
@@ -105,6 +131,9 @@ export const PivotQueueTable: FC = () => {
                 Completed
               </th>
               <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-mute">
+                Reason
+              </th>
+              <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-mute">
                 Actions
               </th>
             </tr>
@@ -135,6 +164,15 @@ export const PivotQueueTable: FC = () => {
                 </td>
                 <td className="px-4 py-2 text-sm text-body">
                   {formatRelativeTime(job.completed_at)}
+                </td>
+                <td className="px-4 py-2 text-xs text-body max-w-64">
+                  {job.error_message || job.skip_reason ? (
+                    <span className="line-clamp-2" title={job.error_message ?? job.skip_reason ?? undefined}>
+                      {job.error_message ?? job.skip_reason}
+                    </span>
+                  ) : (
+                    <span className="text-mute">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   {(job.status === 'failed' || job.status === 'completed') && (
@@ -189,7 +227,7 @@ const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onC
             onChange={(e) => setTargetId(e.target.value)}
             required
             className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
-            placeholder="e.g. occ"
+            placeholder="e.g. contoso"
           />
         </div>
         <div>

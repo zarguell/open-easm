@@ -1,0 +1,10 @@
+[
+  {
+    "name_value": "app.example.invalid\napi.example.invalid",
+    "issuer_name_id": "simulation-ca",
+    "not_before": "2026-01-01",
+    "not_after": "2027-01-01",
+    "serial_number": "sim-001",
+    "fingerprint": "SIMULATEDFINGERPRINT001"
+  }
+]

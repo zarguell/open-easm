@@ -1,0 +1,47 @@
+runtime:
+  mode: simulate
+  fixtures_path: fixtures/simulation
+  allow_external_network: false
+  allow_subprocess: false
+  allow_active_scanning: false
+  refresh_kev_on_startup: false
+
+saas_providers:
+  rules: []
+
+alerts:
+  rules: []
+
+targets:
+  - id: offline-local
+    name: Offline Local Harness
+    type: organization
+    enabled: true
+    labels:
+      env: offline
+      owner: local
+    match_rules:
+      domains:
+        - example.invalid
+      keywords: []
+      asns: []
+      ip_ranges: []
+      keyword_patterns: []
+    runners:
+      subfinder:
+        enabled: true
+        schedule: "0 0 * * *"
+      crtsh:
+        enabled: true
+        schedule: "5 0 * * *"
+    pivot:
+      enabled: true
+      max_depth: 2
+      max_concurrent: 1
+      batch_interval_ms: 1000
+      scope_mode: strict
+      allowed_pivots:
+        - from: hostname
+          to: ip
+          via: dns_resolve
+          cooldown_hours: 0

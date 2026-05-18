@@ -10,6 +10,8 @@ from easm.api.schemas import RunDetail, RunSummary, RunTriggerResponse
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
+ACTIVE_RUNNERS = {"nuclei", "portscan", "screenshot", "wappalyzer"}
+
 
 @router.get("/count")
 async def count_runs(
@@ -103,7 +105,7 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
 
     from easm.runners import get_all_runners
     from easm.runners.engine import execute_runner
-    import httpx
+    from easm.runtime import get_runtime
 
     runners = get_all_runners()
     runner_def = runners.get(runner)
@@ -116,7 +118,17 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
             },
         )
 
-    http_client = httpx.AsyncClient(timeout=30.0)
+    runtime = get_runtime()
+    if not runtime.config.allow_active_scanning and runner in ACTIVE_RUNNERS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "active_scanning_disabled",
+                "detail": f"Runner '{runner}' is disabled by runtime policy",
+            },
+        )
+
+    http_client = runtime.make_http_client()
     try:
         run_id = await execute_runner(
             runner_def.source_name, runner_def.run_fn, target, store,

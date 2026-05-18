@@ -4,11 +4,18 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import asyncpg
 
+from easm.assets.change import build_asset_change_event
+from easm.assets.profile import (
+    build_asset_evidence,
+    build_asset_profile,
+    merge_asset_profiles,
+)
+from easm.assets.scoring import score_asset_exposure
 from easm.correlation.rule import Finding
 from easm.entity_store import deep_merge_attributes, normalize_entity_value
 
@@ -22,6 +29,53 @@ def _canonical_json(obj: Any) -> str:
 def _compute_event_hash(org_id: str, target_id: str, source: str, raw: Any) -> str:
     payload = f"{org_id}:{target_id}:{source}:{_canonical_json(raw)}"
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _asset_profile_attribute_sources(
+    attributes: dict[str, Any],
+    source: str,
+) -> list[str]:
+    sources = []
+    if source and source != "unknown":
+        sources.append(source)
+    attribute_source = attributes.get("source")
+    if isinstance(attribute_source, str):
+        if attribute_source != "unknown":
+            sources.append(attribute_source)
+    elif isinstance(attribute_source, list):
+        sources.extend(
+            item
+            for item in attribute_source
+            if isinstance(item, str) and item != "unknown"
+        )
+    return sources
+
+
+def _prefer_higher_asset_risk(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    existing_score = int(existing.get("score", 0) or 0)
+    incoming_score = int(incoming.get("score", 0) or 0)
+    if incoming_score > existing_score:
+        return incoming
+    return {
+        "score": existing_score,
+        "level": existing.get("level", "none"),
+        "reasons": list(
+            dict.fromkeys(
+                [
+                    *existing.get("reasons", []),
+                    *incoming.get("reasons", []),
+                ]
+            )
+        ),
+        **(
+            {"confidence_score": incoming["confidence_score"]}
+            if "confidence_score" in incoming
+            else {}
+        ),
+    }
 
 
 class Store:
@@ -373,6 +427,132 @@ class Store:
                     logger.debug("raw event link insert skipped for entity %s", entity_id)
             return entity_id, True
 
+    async def update_entity_asset_profile(
+        self,
+        entity_id: uuid.UUID,
+        asset_profile: dict[str, Any],
+    ) -> None:
+        await self.pool.execute(
+            """
+            UPDATE entities
+            SET attributes = jsonb_set(
+                COALESCE(attributes, '{}'::jsonb),
+                '{asset_profile}',
+                $1::jsonb,
+                true
+            )
+            WHERE id = $2
+            """,
+            json.dumps(asset_profile),
+            entity_id,
+        )
+
+    async def apply_asset_profile_for_entity(
+        self,
+        *,
+        org_id: str,
+        target_id: str,
+        entity_id: uuid.UUID,
+        entity_type: str,
+        entity_value: str,
+        source: str,
+        raw_event_id: uuid.UUID | None,
+        target_domains: list[str],
+        target_asns: list[str] | None = None,
+        summary: str,
+    ) -> None:
+        row = await self.pool.fetchrow(
+            "SELECT attributes FROM entities WHERE id = $1",
+            entity_id,
+        )
+        if row is None:
+            return
+
+        attributes = row["attributes"] or {}
+        if isinstance(attributes, str):
+            attributes = json.loads(attributes)
+
+        observed_at = datetime.now(UTC)
+        evidence = build_asset_evidence(
+            source=source,
+            raw_event_id=str(raw_event_id) if raw_event_id is not None else None,
+            observed_at=observed_at,
+            summary=summary,
+        )
+        existing_profile = attributes.get("asset_profile")
+        existing_sources = _asset_profile_attribute_sources(attributes, source)
+        incoming_profile = build_asset_profile(
+            entity_type=entity_type,
+            entity_value=entity_value,
+            target_domains=target_domains,
+            target_asns=target_asns or [],
+            sources=existing_sources,
+            evidence=[evidence],
+            observed_at=observed_at,
+        )
+        profile = (
+            merge_asset_profiles(existing_profile, incoming_profile)
+            if isinstance(existing_profile, dict)
+            else incoming_profile
+        )
+
+        scored_attributes = {**attributes, "asset_profile": profile}
+        findings = await self._findings_for_entity(target_id, entity_id)
+        risk = score_asset_exposure(
+            {
+                "type": entity_type,
+                "value": entity_value,
+                "attributes": scored_attributes,
+            },
+            findings,
+        )
+        existing_risk = (
+            existing_profile.get("risk", {})
+            if isinstance(existing_profile, dict)
+            else {}
+        )
+        profile["risk"] = _prefer_higher_asset_risk(existing_risk, risk)
+
+        await self.update_entity_asset_profile(entity_id, profile)
+        await self.record_asset_change_event(
+            org_id=org_id,
+            target_id=target_id,
+            entity_id=entity_id,
+            change_type=(
+                "asset_observed"
+                if isinstance(existing_profile, dict)
+                else "asset_discovered"
+            ),
+            summary=summary,
+            before_state=existing_profile if isinstance(existing_profile, dict) else None,
+            after_state=profile,
+            evidence=[evidence],
+            source=source,
+            observed_at=observed_at,
+        )
+
+    async def _findings_for_entity(
+        self,
+        target_id: str,
+        entity_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        try:
+            findings = await self.list_findings(target_id=target_id, limit=200)
+        except Exception:
+            logger.debug("finding lookup skipped for asset profile", exc_info=True)
+            return []
+
+        entity_id_text = str(entity_id)
+        matched: list[dict[str, Any]] = []
+        for finding in findings:
+            entity_ids = finding.get("entity_ids") or []
+            if entity_id_text not in [str(value) for value in entity_ids]:
+                continue
+            if "severity" not in finding and "risk" in finding:
+                finding = {**finding, "severity": finding.get("risk")}
+            matched.append(finding)
+        return matched
+
     async def upsert_relationship(
         self,
         org_id: str,
@@ -444,6 +624,178 @@ class Store:
                 source_type, src, source_row is not None,
                 target_type, tgt, target_row is not None,
             )
+
+    async def record_asset_change_event(
+        self,
+        target_id: str,
+        entity_id: uuid.UUID,
+        change_type: str,
+        summary: str,
+        before_state: dict[str, Any] | None = None,
+        after_state: dict[str, Any] | None = None,
+        evidence: list[dict[str, Any]] | None = None,
+        source: str | None = None,
+        observed_at: datetime | None = None,
+        org_id: str = "default",
+    ) -> uuid.UUID:
+        event = build_asset_change_event(
+            change_type=change_type,
+            summary=summary,
+            before_state=before_state,
+            after_state=after_state,
+            evidence=evidence,
+            source=source,
+            observed_at=observed_at,
+        )
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO asset_change_events (
+                org_id, target_id, entity_id, change_type, summary, before_state,
+                after_state, evidence, source, observed_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz)
+            RETURNING id
+            """,
+            org_id,
+            target_id,
+            entity_id,
+            event["change_type"],
+            event["summary"],
+            json.dumps(event["before_state"]),
+            json.dumps(event["after_state"]),
+            json.dumps(event["evidence"]),
+            event["source"],
+            datetime.fromisoformat(event["observed_at"]),
+        )
+        assert row is not None
+        return cast(uuid.UUID, row["id"])
+
+    async def list_asset_change_events(
+        self,
+        target_id: str | None = None,
+        entity_id: uuid.UUID | None = None,
+        org_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        conditions: list[str] = []
+        params: list[Any] = []
+        idx = 0
+
+        if target_id:
+            idx += 1
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+        if entity_id:
+            idx += 1
+            conditions.append(f"entity_id = ${idx}")
+            params.append(entity_id)
+        if org_id:
+            idx += 1
+            conditions.append(f"org_id = ${idx}")
+            params.append(org_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        idx += 1
+        idx += 1
+        rows = await self.pool.fetch(
+            f"""
+            SELECT id, org_id, target_id, entity_id, change_type, summary, before_state,
+                   after_state, evidence, source, observed_at, created_at
+            FROM asset_change_events
+            {where}
+            ORDER BY observed_at DESC, id DESC
+            LIMIT ${idx - 1} OFFSET ${idx}
+            """,
+            *params,
+            limit,
+            offset,
+        )
+        return [_row_to_asset_change_event_dict(row) for row in rows]
+
+    async def list_asset_inventory(
+        self,
+        target_id: str | None = None,
+        confidence_level: str | None = None,
+        risk_level: str | None = None,
+        feed_eligible: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        org_id: str = "default",
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        conditions = ["org_id = $1", "attributes ? 'asset_profile'"]
+        params: list[Any] = [org_id]
+        idx = 2
+
+        if target_id:
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+            idx += 1
+        if confidence_level:
+            conditions.append(f"attributes #>> '{{asset_profile,confidence,level}}' = ${idx}")
+            params.append(confidence_level)
+            idx += 1
+        if risk_level:
+            conditions.append(f"attributes #>> '{{asset_profile,risk,level}}' = ${idx}")
+            params.append(risk_level)
+            idx += 1
+        if feed_eligible is not None:
+            conditions.append(
+                "COALESCE("
+                "(attributes #>> '{asset_profile,source_of_truth_feed,eligible}')::boolean, "
+                "(attributes #>> '{asset_profile,feed,eligible}')::boolean, "
+                "false"
+                ") "
+                f"= ${idx}"
+            )
+            params.append(feed_eligible)
+            idx += 1
+
+        params.extend([limit, offset])
+        rows = await self.pool.fetch(
+            f"""
+            SELECT
+                id AS entity_id,
+                org_id,
+                target_id,
+                entity_type,
+                entity_value,
+                first_seen_at,
+                last_seen_at,
+                (attributes #>> '{{asset_profile,confidence,score}}')::numeric AS confidence_score,
+                attributes #>> '{{asset_profile,confidence,level}}' AS confidence_level,
+                (attributes #>> '{{asset_profile,risk,score}}')::numeric AS risk_score,
+                attributes #>> '{{asset_profile,risk,level}}' AS risk_level,
+                COALESCE(
+                    (attributes #>> '{{asset_profile,source_of_truth_feed,eligible}}')::boolean,
+                    (attributes #>> '{{asset_profile,feed,eligible}}')::boolean,
+                    false
+                ) AS feed_eligible,
+                attributes #> '{{asset_profile,sources}}' AS sources,
+                jsonb_array_length(COALESCE(attributes #> '{{asset_profile,evidence}}', '[]'::jsonb)) AS evidence_count
+            FROM entities
+            WHERE {' AND '.join(conditions)}
+            ORDER BY
+                CASE attributes #>> '{{asset_profile,risk,level}}'
+                    WHEN 'critical' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                    WHEN 'info' THEN 5
+                    ELSE 6
+                END,
+                (attributes #>> '{{asset_profile,confidence,score}}')::numeric DESC NULLS LAST,
+                last_seen_at DESC NULLS LAST,
+                id DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+            """,
+            *params,
+        )
+        return [_row_to_asset_inventory_dict(row) for row in rows]
 
     async def get_triage_inbox(
         self,
@@ -538,19 +890,25 @@ class Store:
         return row["id"]
 
     async def dequeue_pivot_job(self) -> dict[str, Any] | None:
-        row = await self.pool.fetchrow("""
-            SELECT * FROM pivot_queue
-            WHERE status = 'pending'
-            ORDER BY enqueued_at
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        """)
-        if not row:
-            return None
-        await self.pool.execute(
-            "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1", row["id"],
+        row = await self.pool.fetchrow(
+            """
+            WITH picked AS (
+                SELECT id
+                FROM pivot_queue
+                WHERE status = 'pending'
+                ORDER BY enqueued_at
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE pivot_queue pq
+            SET status = 'running',
+                started_at = NOW()
+            FROM picked
+            WHERE pq.id = picked.id
+            RETURNING pq.*
+            """
         )
-        return dict(row)
+        return dict(row) if row else None
 
     async def dequeue_pivot_jobs_batch(self, limit: int = 50) -> list[dict[str, Any]]:
         """Dequeue up to ``limit`` pending pivot jobs.
@@ -558,24 +916,15 @@ class Store:
         Returns jobs already marked as 'running'.
         """
         rows = await self.pool.fetch("""
-            SELECT * FROM pivot_queue
-            WHERE status = 'pending'
-            ORDER BY enqueued_at
-            LIMIT $1
-            FOR UPDATE SKIP LOCKED
-        """, limit)
-        if not rows:
-            return []
-        jobs = []
-        for row in rows:
-            await self.pool.execute(
-                "UPDATE pivot_queue SET status='running', started_at=NOW() WHERE id=$1",
-                row["id"],
+            WITH picked AS (
+                SELECT id FROM pivot_queue WHERE status = 'pending'
+                ORDER BY enqueued_at LIMIT $1 FOR UPDATE SKIP LOCKED
             )
-            job = dict(row)
-            job["status"] = "running"
-            jobs.append(job)
-        return jobs
+            UPDATE pivot_queue pq SET status = 'running', started_at = NOW()
+            FROM picked WHERE pq.id = picked.id
+            RETURNING pq.*
+        """, limit)
+        return [dict(row) for row in rows]
 
     async def mark_pivot_completed(self, job_id: uuid.UUID) -> None:
         await self.pool.execute(
@@ -835,6 +1184,116 @@ class Store:
     async def acknowledge_finding(self, finding_id: uuid.UUID) -> None:
         await self.update_finding_status(finding_id, "acknowledged")
 
+    async def list_certificate_inventory(
+        self,
+        target_id: str | None = None,
+        org_id: str = "default",
+        deployment_state: str | None = None,
+        risk: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        conditions = ["org_id = $1", "entity_type = 'certificate'"]
+        params: list[Any] = [org_id]
+        idx = 2
+
+        if target_id:
+            conditions.append(f"target_id = ${idx}")
+            params.append(target_id)
+            idx += 1
+        if deployment_state:
+            conditions.append(
+                "COALESCE("
+                "attributes #>> '{certificate_profile,analysis,deployment_state}', "
+                "attributes #>> '{certificate_profile,deployment,state}'"
+                f") = ${idx}"
+            )
+            params.append(deployment_state)
+            idx += 1
+        if risk:
+            conditions.append(f"attributes #>> '{{certificate_profile,analysis,risk}}' = ${idx}")
+            params.append(risk)
+            idx += 1
+
+        params.extend([limit, offset])
+        rows = await self.pool.fetch(
+            f"""
+            SELECT
+                id AS entity_id,
+                attributes #>> '{{certificate_profile,fingerprint_sha256}}' AS fingerprint_sha256,
+                attributes #>> '{{certificate_profile,subject,common_name}}' AS subject_cn,
+                attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization,
+                attributes #>> '{{certificate_profile,not_before}}' AS not_before,
+                attributes #>> '{{certificate_profile,not_after}}' AS not_after,
+                attributes #>> '{{certificate_profile,analysis,validity_state}}' AS validity_state,
+                COALESCE(
+                    attributes #>> '{{certificate_profile,analysis,deployment_state}}',
+                    attributes #>> '{{certificate_profile,deployment,state}}'
+                ) AS deployment_state,
+                attributes #> '{{certificate_profile,deployment,observed_endpoints}}' AS observed_endpoints,
+                attributes #>> '{{certificate_profile,analysis,risk}}' AS risk,
+                attributes #> '{{certificate_profile,analysis,reasons}}' AS reasons,
+                attributes #>> '{{certificate_profile,analysis,strength}}' AS strength
+            FROM entities
+            WHERE {' AND '.join(conditions)}
+            ORDER BY
+                CASE attributes #>> '{{certificate_profile,analysis,risk}}'
+                    WHEN 'critical' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                    WHEN 'info' THEN 5
+                    ELSE 6
+                END,
+                (attributes #>> '{{certificate_profile,not_after}}') ASC NULLS LAST
+            LIMIT ${idx} OFFSET ${idx + 1}
+            """,
+            *params,
+        )
+        return [_row_to_certificate_inventory_dict(row) for row in rows]
+
+    async def summarize_certificate_inventory(
+        self,
+        target_id: str | None = None,
+        org_id: str = "default",
+    ) -> dict[str, Any]:
+        conditions = ["org_id = $1", "entity_type = 'certificate'"]
+        params: list[Any] = [org_id]
+        if target_id:
+            conditions.append("target_id = $2")
+            params.append(target_id)
+
+        rows = await self.pool.fetch(
+            f"""
+            SELECT
+                attributes #>> '{{certificate_profile,analysis,risk}}' AS risk,
+                COALESCE(
+                    attributes #>> '{{certificate_profile,analysis,deployment_state}}',
+                    attributes #>> '{{certificate_profile,deployment,state}}'
+                ) AS deployment_state,
+                attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization
+            FROM entities
+            WHERE {' AND '.join(conditions)}
+            """,
+            *params,
+        )
+
+        summary: dict[str, Any] = {
+            "total": len(rows),
+            "by_risk": {},
+            "by_deployment_state": {},
+            "by_issuer_organization": {},
+        }
+        for row in rows:
+            for source_key, summary_key in (
+                ("risk", "by_risk"),
+                ("deployment_state", "by_deployment_state"),
+                ("issuer_organization", "by_issuer_organization"),
+            ):
+                value = row[source_key] or "unknown"
+                summary[summary_key][value] = summary[summary_key].get(value, 0) + 1
+        return summary
+
 
 def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
     def _fmt(dt: datetime | None) -> str | None:
@@ -854,6 +1313,75 @@ def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
         "first_seen_at": _fmt(row["first_seen_at"]),
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
+    }
+
+
+def _row_to_asset_change_event_dict(row: asyncpg.Record) -> dict[str, Any]:
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    return {
+        "id": str(row["id"]),
+        "org_id": row["org_id"],
+        "target_id": row["target_id"],
+        "entity_id": str(row["entity_id"]),
+        "change_type": row["change_type"],
+        "summary": row["summary"],
+        "before_state": _json_field(row["before_state"], {}),
+        "after_state": _json_field(row["after_state"], {}),
+        "evidence": _json_field(row["evidence"], []),
+        "source": row["source"],
+        "observed_at": _fmt(row["observed_at"]),
+        "created_at": _fmt(row["created_at"]),
+    }
+
+
+def _row_to_asset_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    confidence_score = row["confidence_score"]
+    risk_score = row["risk_score"]
+    return {
+        "entity_id": str(row["entity_id"]),
+        "org_id": row["org_id"],
+        "target_id": row["target_id"],
+        "entity_type": row["entity_type"],
+        "entity_value": row["entity_value"],
+        "first_seen_at": _fmt(row["first_seen_at"]),
+        "last_seen_at": _fmt(row["last_seen_at"]),
+        "confidence_score": float(confidence_score) if confidence_score is not None else None,
+        "confidence_level": row["confidence_level"],
+        "risk_score": float(risk_score) if risk_score is not None else None,
+        "risk_level": row["risk_level"],
+        "feed_eligible": row["feed_eligible"],
+        "sources": _json_field(row["sources"], []),
+        "evidence_count": row["evidence_count"],
+    }
+
+
+def _json_field(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
+def _row_to_certificate_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
+    return {
+        "entity_id": str(row["entity_id"]),
+        "fingerprint_sha256": row["fingerprint_sha256"],
+        "subject_cn": row["subject_cn"],
+        "issuer_organization": row["issuer_organization"],
+        "not_before": row["not_before"],
+        "not_after": row["not_after"],
+        "validity_state": row["validity_state"],
+        "deployment_state": row["deployment_state"],
+        "observed_endpoints": _json_field(row["observed_endpoints"], []),
+        "risk": row["risk"],
+        "reasons": _json_field(row["reasons"], []),
+        "strength": row["strength"],
     }
 
 

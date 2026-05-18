@@ -66,7 +66,7 @@ class PivotResolver:
                         if covered:
                             await self._insert_skipped(
                                 target.org_id, target.id, entity_type, entity_value,
-                                pivot_rule.via, f"covered_by_apex:{apex}",
+                                entity_id, pivot_rule.via, f"covered_by_apex:{apex}",
                             )
                             continue
 
@@ -119,6 +119,7 @@ class PivotResolver:
               AND completed_at > NOW() - ($4 || ' hours')::INTERVAL
             LIMIT 1
         """, org_id, apex, pivot_type, str(cooldown_hours))
+        return row
 
     async def _check_cooldown(self, org_id, entity_type, entity_value, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""
@@ -128,9 +129,10 @@ class PivotResolver:
               AND enqueued_at > NOW() - ($5 || ' hours')::INTERVAL
             LIMIT 1
         """, org_id, entity_type, entity_value, pivot_type, str(cooldown_hours))
+        return row
 
-    async def _insert_skipped(self, org_id, target_id, entity_type, entity_value, pivot_type, reason):
+    async def _insert_skipped(self, org_id, target_id, entity_type, entity_value, entity_id, pivot_type, reason):
         await self.pool.execute("""
-            INSERT INTO pivot_queue (org_id, target_id, entity_type, entity_value, pivot_type, status, skip_reason)
-            VALUES ($1, $2, $3, $4, $5, 'skipped_covered', $6)
-        """, org_id, target_id, entity_type, entity_value, pivot_type, reason)
+            INSERT INTO pivot_queue (org_id, target_id, entity_type, entity_value, entity_id, pivot_type, status, skip_reason)
+            VALUES ($1, $2, $3, $4, $5, $6, 'skipped_covered', $7)
+        """, org_id, target_id, entity_type, entity_value, entity_id, pivot_type, reason)

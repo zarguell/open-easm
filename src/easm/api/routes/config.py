@@ -56,14 +56,14 @@ async def update_config(
 @router.get("/config/history", response_model=list[ConfigSnapshot])
 async def config_history(store: Store = Depends(get_store)):
     rows = await store.pool.fetch(
-        "SELECT id, snapshot->'targets' AS targets, created_at "
-        "FROM config_snapshots ORDER BY created_at DESC LIMIT 20"
+        "SELECT id, raw_config->'targets' AS targets, loaded_at "
+        "FROM config_snapshots ORDER BY loaded_at DESC LIMIT 20"
     )
     return [
         ConfigSnapshot(
             id=str(r["id"]),
             target_count=len(r["targets"] or []),
-            created_at=r["created_at"].isoformat(),
+            created_at=r["loaded_at"].isoformat(),
         )
         for r in rows
     ]
@@ -75,7 +75,8 @@ async def reload_config(
     scheduler: Scheduler = Depends(get_scheduler),
     store: Store = Depends(get_store),
 ):
-    new_config = load_config("config.yaml")
+    config_path = os.environ.get("EASM_CONFIG_PATH", "config.yaml")
+    new_config = load_config(config_path)
 
     old_ids = {t.id for t in config.targets}
     new_ids = {t.id for t in new_config.targets}
@@ -85,13 +86,13 @@ async def reload_config(
     for target_id in removed:
         scheduler.remove_jobs_for_target(target_id)
 
+    set_config(new_config)
+
     for target in new_config.targets:
         if target.id in added:
             scheduler.add_jobs_for_target(target, store=store)
 
-    raw = yaml.safe_load(open("config.yaml"))
+    raw = yaml.safe_load(Path(config_path).read_text())
     await store.save_config_snapshot(raw)
-
-    set_config(new_config)
 
     return {"status": "ok", "added": list(added), "removed": list(removed), "modified": []}

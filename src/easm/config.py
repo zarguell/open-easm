@@ -191,8 +191,18 @@ class AlertsConfig(BaseModel):
     rules: list[AlertRule] = Field(default_factory=list)
 
 
+class RuntimeConfig(BaseModel):
+    mode: Literal["live", "simulate"] = "live"
+    fixtures_path: str = "fixtures/simulation"
+    allow_external_network: bool = True
+    allow_subprocess: bool = True
+    allow_active_scanning: bool = False
+    refresh_kev_on_startup: bool = True
+
+
 class Config(BaseModel):
     targets: list[TargetConfig]
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     saas_providers: SaasProviderConfig = Field(default_factory=SaasProviderConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
 

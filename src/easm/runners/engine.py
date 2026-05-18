@@ -6,12 +6,15 @@ import logging
 import random
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import httpx
 
 from easm.models import RunStatus
-from easm.store import Store
+from easm.runtime import get_runtime
+
+if TYPE_CHECKING:
+    from easm.store import Store
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,9 @@ async def exec_subprocess(
     """
     if logger_fn is None:
         logger_fn = lambda _: None
+    runtime = get_runtime()
+    if runtime.is_simulation or not runtime.config.allow_subprocess:
+        return await runtime.exec_subprocess(cmd, timeout=timeout, logger_fn=logger_fn)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -204,18 +210,53 @@ async def _ingest_entities(
     pool: Any | None = None,
     raw_event_id: uuid.UUID | None = None,
 ) -> None:
+    ingest_pool = pool or getattr(store, "pool", None)
     try:
         entities, relationships = output_schema(raw)
     except Exception:
         logger.exception("output_schema failed", extra={"run_id": str(run_id)})
         return
+    discovery_session_id = None
+    try:
+        run_data = await store.get_run(run_id)
+        discovery_session_id = run_data.get("discovery_session_id") if run_data else None
+    except Exception:
+        logger.debug("failed to load discovery session for run", exc_info=True)
     for ec in entities:
         try:
             entity_id, is_new = await store.upsert_entity(
                 org_id, target_id, ec.entity_type, ec.value,
                 ec.attributes, raw_event_id=raw_event_id,
+                discovery_session_id=discovery_session_id,
+                discovery_run_id=run_id,
             )
-            if is_new and target is not None and pool is not None:
+            try:
+                source = ec.attributes.get("source") or "unknown"
+                target_domains = (
+                    list(target.match_rules.domains)
+                    if target is not None and hasattr(target, "match_rules")
+                    else []
+                )
+                target_asns = (
+                    list(target.match_rules.asns)
+                    if target is not None and hasattr(target, "match_rules")
+                    else []
+                )
+                await store.apply_asset_profile_for_entity(
+                    org_id=org_id,
+                    target_id=target_id,
+                    entity_id=entity_id,
+                    entity_type=ec.entity_type,
+                    entity_value=ec.value,
+                    source=source,
+                    raw_event_id=raw_event_id,
+                    target_domains=target_domains,
+                    target_asns=target_asns,
+                    summary=f"{source} observed {ec.entity_type} {ec.value}",
+                )
+            except Exception:
+                logger.debug("asset profile update failed", exc_info=True)
+            if is_new and target is not None and ingest_pool is not None:
                 try:
                     from easm.classify import classify_entity
                     classification = classify_entity(
@@ -232,9 +273,9 @@ async def _ingest_entities(
                         ),
                     )
                     if classification.classification != "org-owned":
-                        await pool.execute(
+                        await ingest_pool.execute(
                             "UPDATE entities SET attributes "
-                            "|| $1::jsonb WHERE id = $2",
+                            "= attributes || $1::jsonb WHERE id = $2",
                             json.dumps(classification.to_dict()),
                             entity_id,
                         )
@@ -243,11 +284,11 @@ async def _ingest_entities(
 
                 try:
                     from easm.pivot.resolver import PivotResolver
-                    resolver = PivotResolver(pool)
+                    resolver = PivotResolver(ingest_pool)
                     await resolver.check_and_enqueue(
                         target, ec.entity_type, ec.value, entity_id,
                         depth=1,
-                        discovery_session_id=run_id,
+                        discovery_session_id=discovery_session_id,
                     )
                 except Exception:
                     logger.debug(
@@ -351,6 +392,7 @@ async def standard_subprocess_run(
                 if output_schema:
                     await _ingest_entities(store, output_schema, raw, run_id,
                                           target.org_id, target.id, target=target,
+                                          pool=pool or getattr(store, "pool", None),
                                           raw_event_id=raw_event_id)
             else:
                 deduped += 1
@@ -503,6 +545,7 @@ async def standard_http_run(
                         if output_schema:
                             await _ingest_entities(store, output_schema, raw, run_id,
                                                   target.org_id, target.id, target=target,
+                                                  pool=pool or getattr(store, "pool", None),
                                                   raw_event_id=raw_event_id)
                     else:
                         deduped += 1

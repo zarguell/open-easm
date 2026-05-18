@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: easm
+      POSTGRES_USER: easm
+      POSTGRES_PASSWORD: easm
+    volumes:
+      - postgres_offline_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - easm_offline
+
+  easm:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EASM_DATABASE_DSN: postgresql://easm:easm@postgres:5432/easm
+      EASM_CONFIG_PATH: /app/config.yaml
+    volumes:
+      - ./config.offline.yaml:/app/config.yaml:ro
+      - ./fixtures/simulation:/app/fixtures/simulation:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: "no"
+    networks:
+      - easm_offline
+
+volumes:
+  postgres_offline_data:
+
+networks:
+  easm_offline:
+    internal: true

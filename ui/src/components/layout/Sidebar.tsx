@@ -1,7 +1,9 @@
 import { useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
+  Database,
   List,
+  KeyRound,
   Share2,
   Play,
   Target,
@@ -23,7 +25,9 @@ interface SidebarProps {
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Database, label: "Assets", path: "/assets" },
   { icon: List, label: "Inventory", path: "/inventory" },
+  { icon: KeyRound, label: "Certificates", path: "/certificates" },
   { icon: Share2, label: "Graph Explorer", path: "/graph" },
   { icon: Play, label: "Runs", path: "/runs" },
   { icon: Target, label: "Targets & Pivots", path: "/targets" },

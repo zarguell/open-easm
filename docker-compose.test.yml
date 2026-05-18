@@ -1,0 +1,36 @@
+services:
+  postgres-test:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: easm
+      POSTGRES_USER: easm
+      POSTGRES_PASSWORD: easm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easm"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      - easm_test
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    environment:
+      EASM_TEST_DATABASE_DSN: postgresql://easm:easm@postgres-test:5432/easm
+      EASM_DATABASE_DSN: postgresql://easm:easm@postgres-test:5432/easm
+      EASM_CONFIG_PATH: /app/config.offline.yaml
+      PYTHONPATH: /app/src
+    command: ["python", "scripts/test_backend.py"]
+    volumes:
+      - .:/app
+    networks:
+      - easm_test
+
+networks:
+  easm_test:
+    internal: true

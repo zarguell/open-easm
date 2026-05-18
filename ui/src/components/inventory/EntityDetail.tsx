@@ -11,6 +11,101 @@ interface EntityDetailProps {
   onNavigate?: (entityId: string) => void
 }
 
+type UnknownRecord = Record<string, unknown>
+
+const isRecord = (value: unknown): value is UnknownRecord =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const readRecord = (record: UnknownRecord | undefined, key: string): UnknownRecord | undefined => {
+  const value = record?.[key]
+  return isRecord(value) ? value : undefined
+}
+
+const readText = (record: UnknownRecord | undefined, key: string): string | undefined => {
+  const value = record?.[key]
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  return undefined
+}
+
+const readScore = (record: UnknownRecord | undefined, key: string): string | undefined => {
+  const value = record?.[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return String(Math.round(value))
+  if (typeof value === 'string' && value.trim()) return value
+  return undefined
+}
+
+const titleize = (value: string | undefined): string =>
+  value ? value.replace(/_/g, ' ') : 'unknown'
+
+const ProfileStat: FC<{ label: string; value: string; tone?: string }> = ({ label, value, tone }) => (
+  <div className="rounded-md border border-hairline bg-canvas-soft px-3 py-2">
+    <div className="font-mono text-[10px] font-semibold uppercase tracking-wider text-mute">{label}</div>
+    <div className="mt-1 text-sm font-semibold text-ink" style={tone ? { color: tone } : undefined}>
+      {value}
+    </div>
+  </div>
+)
+
+const riskTone = (level: string | undefined): string | undefined => {
+  if (level === 'critical' || level === 'high') return '#ef4444'
+  if (level === 'medium') return '#f59e0b'
+  if (level === 'low' || level === 'info') return '#00d992'
+  return undefined
+}
+
+const AssetProfileSummary: FC<{ profile: UnknownRecord }> = ({ profile }) => {
+  const confidence = readRecord(profile, 'confidence')
+  const risk = readRecord(profile, 'risk')
+  const confidenceLevel = readText(confidence, 'level')
+  const confidenceScore = readScore(confidence, 'score')
+  const riskLevel = readText(risk, 'level')
+  const riskScore = readScore(risk, 'score')
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold text-mute uppercase tracking-wider">Asset Profile</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <ProfileStat
+          label="Confidence"
+          value={`${titleize(confidenceLevel)}${confidenceScore ? ` / ${confidenceScore}` : ''}`}
+        />
+        <ProfileStat
+          label="Risk"
+          value={`${titleize(riskLevel)}${riskScore ? ` / ${riskScore}` : ''}`}
+          tone={riskTone(riskLevel)}
+        />
+      </div>
+    </div>
+  )
+}
+
+const CertificateProfileSummary: FC<{ profile: UnknownRecord }> = ({ profile }) => {
+  const analysis = readRecord(profile, 'analysis')
+  const issuer = readRecord(profile, 'issuer')
+  const deployment = readRecord(profile, 'deployment')
+  const risk = readText(analysis, 'risk') ?? readText(profile, 'risk')
+  const validityState = readText(analysis, 'validity_state') ?? readText(profile, 'validity_state')
+  const deploymentState =
+    readText(analysis, 'deployment_state') ??
+    readText(deployment, 'state') ??
+    readText(profile, 'deployment_state')
+  const issuerOrganization = readText(issuer, 'organization')
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold text-mute uppercase tracking-wider">Certificate Profile</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <ProfileStat label="Risk" value={titleize(risk)} tone={riskTone(risk)} />
+        <ProfileStat label="Validity" value={titleize(validityState)} />
+        <ProfileStat label="Deployment" value={titleize(deploymentState)} />
+        <ProfileStat label="Issuer Org" value={issuerOrganization ?? 'unknown'} />
+      </div>
+    </div>
+  )
+}
+
 export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) => {
   const { data: entity, isLoading, error } = useEntity(entityId)
   const { data: relationshipsData } = useEntityRelationships(entityId)
@@ -29,6 +124,9 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
   }
 
   const relationships = relationshipsData?.relationships ?? []
+  const attributes = isRecord(entity.attributes) ? entity.attributes : undefined
+  const assetProfile = readRecord(attributes, 'asset_profile')
+  const certificateProfile = readRecord(attributes, 'certificate_profile')
 
   return (
     <div className="space-y-6">
@@ -106,6 +204,10 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
           </div>
         </div>
       )}
+
+      {assetProfile && <AssetProfileSummary profile={assetProfile} />}
+
+      {certificateProfile && <CertificateProfileSummary profile={certificateProfile} />}
 
       {entity.attributes && Object.keys(entity.attributes).length > 0 && (
         <div className="space-y-2">

@@ -1,0 +1,4 @@
+[
+  {"match": {"entity_value": "app.example.invalid"}, "results": [{"hostname": "app.example.invalid", "ip": "198.51.100.10", "record_type": "A"}]},
+  {"match": {"entity_value": "api.example.invalid"}, "results": [{"hostname": "api.example.invalid", "ip": "198.51.100.11", "record_type": "A"}]}
+]

@@ -16,6 +16,7 @@ from easm.api.routes.health import check_binaries
 from easm.config import load_config
 from easm.db import close_pool, create_pool
 from easm.pivot.worker import pivot_worker_pool
+from easm.runtime import configure_runtime
 from easm.scheduler import Scheduler
 from easm.store import Store
 
@@ -49,6 +50,16 @@ async def main() -> None:
     except Exception as e:
         logger.error("failed to load config", path=config_path, error=str(e))
         sys.exit(1)
+
+    configure_runtime(config.runtime)
+    logger.info(
+        "configured runtime",
+        mode=config.runtime.mode,
+        fixtures_path=config.runtime.fixtures_path,
+        allow_external_network=config.runtime.allow_external_network,
+        allow_subprocess=config.runtime.allow_subprocess,
+        allow_active_scanning=config.runtime.allow_active_scanning,
+    )
 
     pdcp_key = os.environ.get("PDCP_API_KEY")
     if pdcp_key:
@@ -89,20 +100,35 @@ async def main() -> None:
     scheduler.setup_jobs(config, store)
     scheduler.start()
 
-    from easm.vuln_cache import refresh_kev_cache
-    try:
-        kev_count = await refresh_kev_cache(pool)
-        logger.info("initial kev cache populated", count=kev_count)
-    except Exception:
-        logger.exception("initial kev cache population failed (non-fatal)")
+    if config.runtime.mode == "simulate" or not config.runtime.refresh_kev_on_startup:
+        logger.info(
+            "skipping kev refresh",
+            mode=config.runtime.mode,
+            refresh_kev_on_startup=config.runtime.refresh_kev_on_startup,
+        )
+    else:
+        from easm.vuln_cache import refresh_kev_cache
+        try:
+            kev_count = await refresh_kev_cache(pool)
+            logger.info("initial kev cache populated", count=kev_count)
+        except Exception:
+            logger.exception("initial kev cache population failed (non-fatal)")
 
-    scheduler.setup_kev_refresh(pool)
+        scheduler.setup_kev_refresh(pool)
 
     app = create_app()
 
     for target in config.targets:
         runner_cfg = target.runners.get("certstream")
         if runner_cfg and runner_cfg.enabled:
+            if config.runtime.mode == "simulate" or not config.runtime.allow_external_network:
+                logger.info(
+                    "skipping certstream due to runtime policy",
+                    target_id=target.id,
+                    mode=config.runtime.mode,
+                    allow_external_network=config.runtime.allow_external_network,
+                )
+                continue
             from easm.runners import get_all_runners
             from easm.runners.engine import execute_runner
             cert_def = get_all_runners()["certstream"]

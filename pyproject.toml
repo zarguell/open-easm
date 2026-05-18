@@ -48,6 +48,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-ra --strict-config --strict-markers"
+markers = [
+    "unit: pure unit tests with no database or external process dependency",
+    "db: tests that require the Postgres test database",
+    "simulation: tests that exercise fixture-backed simulation mode",
+    "network_mocked: tests that exercise network code through mocked clients/transports",
+    "integration: multi-component tests that still avoid public target traffic",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/easm"]

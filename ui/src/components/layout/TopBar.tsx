@@ -7,10 +7,15 @@ interface TopBarProps {
 
 const routeLabels: Record<string, string> = {
   "/": "Dashboard",
+  "/assets": "Asset Inventory",
   "/inventory": "Inventory",
+  "/certificates": "Certificates",
   "/graph": "Graph Explorer",
   "/runs": "Runs",
   "/targets": "Targets & Pivots",
+  "/config": "Config",
+  "/alerts": "Alerts",
+  "/geo": "Geo Map",
 };
 
 export function TopBar({ onMobileMenuToggle }: TopBarProps) {

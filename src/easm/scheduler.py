@@ -7,6 +7,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[impo
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_RUNNERS = {"nuclei", "portscan", "screenshot", "wappalyzer"}
+
 
 class Scheduler:
     def __init__(self) -> None:
@@ -23,13 +25,20 @@ class Scheduler:
         """Schedule a single runner for a target. Shared by setup_jobs and add_jobs_for_target."""
         if not runner_def.supports_schedule:
             return
+        from easm.runtime import get_runtime
+        runtime = get_runtime()
+        if not runtime.config.allow_active_scanning and runner_name in ACTIVE_RUNNERS:
+            logger.info(
+                "skipping active runner schedule",
+                extra={"target_id": target.id, "runner": runner_name},
+            )
+            return
         schedule = cfg_dict.get("schedule", "0 0 * * *")
         job_id = f"{target.id}-{runner_name}"
         if self._scheduler.get_job(job_id) is not None:
             return
 
         from easm.runners.engine import execute_runner
-        import httpx
 
         async def _run_job():
             active = await store.count_active_runs(target.id, runner_def.source_name)
@@ -40,7 +49,7 @@ class Scheduler:
                 )
                 return
 
-            http_client = httpx.AsyncClient(timeout=30.0)
+            http_client = get_runtime().make_http_client()
             try:
                 await execute_runner(
                     runner_def.source_name,

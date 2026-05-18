@@ -16,6 +16,8 @@ _scheduler: Scheduler | None = None
 def set_config(config: Config) -> None:
     global _config
     _config = config
+    from easm.runtime import configure_runtime
+    configure_runtime(config.runtime)
 
 
 def set_store(store: Store) -> None:

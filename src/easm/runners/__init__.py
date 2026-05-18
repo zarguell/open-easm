@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from easm.runners.registry import RunnerDef, get_runner_registry
+from easm.runners.schemas import OUTPUT_SCHEMAS
 
 if TYPE_CHECKING:
     pass
@@ -107,6 +108,7 @@ def get_all_runners() -> dict[str, RunnerDef]:
         registry[name] = RunnerDef(
             source_name=name,
             run_fn=_make_legacy_adapter(runner_cls),
+            output_schema=OUTPUT_SCHEMAS.get(name),
             supports_schedule=getattr(runner_cls, "supports_schedule", True),
             supports_manual_trigger=getattr(runner_cls, "supports_manual_trigger", True),
             is_continuous=getattr(runner_cls, "is_continuous", False),

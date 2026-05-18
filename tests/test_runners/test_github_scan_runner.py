@@ -72,7 +72,13 @@ async def test_github_scan_run_once_with_gitleaks(target, mock_store):
 async def test_github_scan_run_once_gitleaks_not_found(target, mock_store):
     from easm.runners.github_scan_runner import GithubScanRunner
 
-    runner = GithubScanRunner(mock_store)
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json = lambda: {"items": []}
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    runner = GithubScanRunner(mock_store, http_client=mock_client)
     runner._exec_subprocess = AsyncMock(return_value=(False, "", "binary not found: gitleaks"))
 
     run_id = uuid.uuid7()
@@ -102,6 +108,7 @@ async def test_github_scan_run_once_github_search_api(target, mock_store):
     mock_client.get = AsyncMock(return_value=mock_resp)
 
     runner = GithubScanRunner(mock_store, http_client=mock_client)
+    runner._exec_subprocess = AsyncMock(return_value=(False, "", "binary not found: gitleaks"))
     run_id = uuid.uuid7()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from easm.certificates.analysis import analyze_certificate_profile
+from easm.certificates.profile import build_certificate_profile
 from easm.entity_store import normalize_entity_value
 
 
@@ -26,6 +28,12 @@ class RelationshipCandidate:
 OutputSchemaFn = Callable[[dict[str, Any]], tuple[list[EntityCandidate], list[RelationshipCandidate]]]
 
 
+def _profile_with_analysis(source: str, raw: dict[str, Any]) -> dict[str, Any]:
+    profile = build_certificate_profile(source=source, raw=raw)
+    profile["analysis"] = analyze_certificate_profile(profile)
+    return profile
+
+
 def asnmap(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     asn_val = raw.get("as_number", str(raw.get("asn", ""))).strip()
     if not asn_val:
@@ -46,10 +54,10 @@ def asnmap(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
 
 
 def subfinder(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    domain = raw.get("host", "").strip()
-    if not domain:
+    host = raw.get("host", "").strip()
+    if not host:
         return [], []
-    return [EntityCandidate("domain", normalize_entity_value("domain", domain),
+    return [EntityCandidate("hostname", normalize_entity_value("hostname", host),
                             {"source": "subfinder"})], []
 
 
@@ -89,11 +97,13 @@ def crtsh(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]
     entities: list[EntityCandidate] = []
     rels: list[RelationshipCandidate] = []
     cert_val = raw.get("fingerprint", raw.get("serial_number", str(_uuid.uuid4())))
+    profile = _profile_with_analysis("crtsh", raw)
     entities.append(EntityCandidate("certificate", cert_val, {
         "issuer_name_id": raw.get("issuer_name_id", ""),
         "not_before": raw.get("not_before", ""),
         "not_after": raw.get("not_after", ""),
         "source": "crtsh",
+        "certificate_profile": profile,
     }))
     for name in all_names:
         nn = normalize_entity_value("domain", name)
@@ -173,26 +183,47 @@ def screenshot(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
 
 def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     import uuid as _uuid
-    cert_data = raw.get("cert_data", {})
+    cert_data = _certstream_cert_data(raw)
     all_names: set[str] = set()
     cn = cert_data.get("subject", {}).get("CN", "")
     if cn:
         all_names.add(cn)
     san_ext = cert_data.get("extensions", {}).get("subjectAltName", {})
-    for names in san_ext.values():
-        if isinstance(names, list):
-            all_names.update(names)
+    if isinstance(san_ext, dict):
+        for names in san_ext.values():
+            if isinstance(names, list):
+                all_names.update(names)
+            elif isinstance(names, str):
+                all_names.add(names)
+    elif isinstance(san_ext, str):
+        for name in san_ext.split(","):
+            clean_name = name.strip()
+            if clean_name.startswith("DNS:"):
+                clean_name = clean_name[4:]
+            if clean_name:
+                all_names.add(clean_name)
     if not all_names:
         return [], []
     entities: list[EntityCandidate] = []
     rels: list[RelationshipCandidate] = []
     cert_val = raw.get("fingerprint", raw.get("serial_number", str(_uuid.uuid4())))
+    profile_raw = {
+        **raw,
+        "fingerprint": raw.get("fingerprint") or cert_data.get("fingerprint"),
+        "serial_number": raw.get("serial_number") or cert_data.get("serial_number"),
+        "subject_cn": cn,
+        "not_before": raw.get("not_before") or cert_data.get("not_before"),
+        "not_after": raw.get("not_after") or cert_data.get("not_after"),
+        "san_dns_names": sorted(all_names),
+    }
+    profile = _profile_with_analysis("certstream", profile_raw)
     entities.append(EntityCandidate("certificate", cert_val, {
         "subject": cert_data.get("subject", {}),
         "issuer": cert_data.get("issuer", {}),
         "not_before": cert_data.get("not_before"),
         "not_after": cert_data.get("not_after"),
         "source": "certstream",
+        "certificate_profile": profile,
     }))
     for name in all_names:
         nn = normalize_entity_value("domain", name)
@@ -263,6 +294,7 @@ def tls_cert(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
     san_names = cert_data.get("san_dns_names", [])
     entities: list[EntityCandidate] = []
     rels: list[RelationshipCandidate] = []
+    profile = _profile_with_analysis("tls_cert", raw)
     entities.append(EntityCandidate("certificate", cert_val, {
         "source": "tls_cert", "subject_cn": cert_data.get("subject_cn", ""),
         "issuer_cn": cert_data.get("issuer_cn", ""), "issuer_org": cert_data.get("issuer_org", ""),
@@ -270,8 +302,10 @@ def tls_cert(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
         "not_before": cert_data.get("not_before", ""), "not_after": cert_data.get("not_after", ""),
         "fingerprint_sha256": cert_data.get("fingerprint_sha256", ""),
         "san_dns_names": san_names, "grabbed_from": nh,
+        "certificate_profile": profile,
     }))
     rels.append(RelationshipCandidate("hostname", nh, "certificate", cert_val, "issued_for", "pivot"))
+    rels.append(RelationshipCandidate("hostname", nh, "certificate", cert_val, "deployed_on", "pivot"))
     for san in san_names:
         ns = normalize_entity_value("domain", san)
         entities.append(EntityCandidate("domain", ns, {"source": "tls_cert"}))
@@ -470,8 +504,68 @@ def ripe_stat(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandid
     return entities, rels
 
 
-def _noop(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    return [], []
+def _certstream_cert_data(raw: dict[str, Any]) -> dict[str, Any]:
+    cert_data = raw.get("cert_data", {})
+    if isinstance(cert_data, dict) and isinstance(cert_data.get("leaf_cert"), dict):
+        return cert_data["leaf_cert"]
+    if isinstance(cert_data, dict):
+        return cert_data
+    leaf_cert = raw.get("leaf_cert", {})
+    return leaf_cert if isinstance(leaf_cert, dict) else {}
+
+
+def rdap(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
+    asn_val = raw.get("asn", "").strip()
+    rdap_data = {k: v for k, v in raw.items() if k != "asn"}
+    if not asn_val or not rdap_data:
+        return [], []
+    return [
+        EntityCandidate(
+            "asn",
+            normalize_entity_value("asn", asn_val),
+            {"source": "rdap", "rdap": rdap_data},
+        ),
+    ], []
+
+
+def domain_rdap(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
+    domain = raw.get("domain", "").strip()
+    if not domain:
+        return [], []
+    rdap_data = {k: v for k, v in raw.items() if k != "domain"}
+    if not rdap_data:
+        return [], []
+    return [
+        EntityCandidate(
+            "domain",
+            normalize_entity_value("domain", domain),
+            {"source": "domain_rdap", "rdap": rdap_data},
+        ),
+    ], []
+
+
+def cpe_vuln_enrich(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
+    entity_type = raw.get("entity_type", "").strip()
+    entity_value = raw.get("entity_value", "").strip()
+    if not entity_type and raw.get("hostname", "").strip():
+        entity_type = "hostname"
+        entity_value = raw.get("hostname", "").strip()
+    if not entity_type or not entity_value:
+        return [], []
+    return [
+        EntityCandidate(
+            entity_type,
+            normalize_entity_value(entity_type, entity_value),
+            {
+                "source": "cpe_vuln_enrich",
+                "computed_cpes": raw.get("computed_cpes", []),
+                "matched_cves": raw.get("matched_cves", []),
+                "kev_count": raw.get("kev_count", 0),
+                "total_cves": raw.get("total_cves", 0),
+                "risk": raw.get("risk", "unknown"),
+            },
+        ),
+    ], []
 
 
 OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {
@@ -484,158 +578,5 @@ OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {
     "greynoise": greynoise, "urlscan": urlscan, "censys": censys,
     "securitytrails": passive_dns, "cloud_enum": cloud_bucket, "searchengine": searchengine,
     "takeover": subdomain_takeover, "ripe_stat": ripe_stat,
-    "paste_monitor": _noop, "gist_monitor": _noop, "stackoverflow_monitor": _noop,
-    "discord_monitor": _noop, "github_scan": _noop, "breach_monitor": _noop,
-    "reverse_whois": _noop,
-}
-# --- pivot/enrichment schemas (used by pivot worker, not runners) ---
-
-def dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    h = raw.get("hostname", "").strip(); ip = raw.get("ip", "").strip()
-    if not h or not ip: return [], []
-    nh = normalize_entity_value("hostname", h); ni = normalize_entity_value("ip", ip)
-    return [
-        EntityCandidate("hostname", nh, {"source":"dns","record_type":raw.get("record_type","A")}),
-        EntityCandidate("ip", ni, {"source":"dns"}),
-    ], [
-        RelationshipCandidate("hostname", nh, "ip", ni, "resolves_to", "pivot"),
-        RelationshipCandidate("ip", ni, "hostname", nh, "reverse_of", "correlation"),
-    ]
-
-def reverse_dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip(); h = raw.get("hostname", "").strip()
-    if not ip or not h: return [], []
-    ni = normalize_entity_value("ip", ip); nh = normalize_entity_value("hostname", h)
-    return [
-        EntityCandidate("ip", ni, {"source":"reverse_dns"}),
-        EntityCandidate("hostname", nh, {"source":"reverse_dns"}),
-    ], [RelationshipCandidate("ip", ni, "hostname", nh, "reverse_of", "pivot")]
-
-def domain_extract(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    d = raw.get("domain", "").strip()
-    if not d: return [], []
-    return [EntityCandidate("domain", normalize_entity_value("domain", d), {"source":"domain_extract","source_hostname":raw.get("source_hostname","")})], []
-
-def geoip(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip(); g = raw.get("geo")
-    if not ip or not g: return [], []
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"geoip","geo":g})], []
-
-def tls_cert(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    h = raw.get("hostname", "").strip(); cd = raw.get("cert")
-    if not h or not cd: return [], []
-    cv = cd.get("fingerprint_sha256", cd.get("serial_number", ""))
-    if not cv: return [], []
-    nh = normalize_entity_value("hostname", h)
-    san = cd.get("san_dns_names", [])
-    e = [EntityCandidate("certificate", cv, {"source":"tls_cert","subject_cn":cd.get("subject_cn",""),"issuer_cn":cd.get("issuer_cn",""),"issuer_org":cd.get("issuer_org",""),"serial_number":cd.get("serial_number",""),"not_before":cd.get("not_before",""),"not_after":cd.get("not_after",""),"fingerprint_sha256":cd.get("fingerprint_sha256",""),"san_dns_names":san,"grabbed_from":nh})]
-    r = [RelationshipCandidate("hostname", nh, "certificate", cv, "issued_for", "pivot")]
-    for s in san:
-        ns = normalize_entity_value("domain", s)
-        e.append(EntityCandidate("domain", ns, {"source":"tls_cert"}))
-        r.append(RelationshipCandidate("certificate", cv, "domain", ns, "san_contains", "pivot"))
-        r.append(RelationshipCandidate("domain", ns, "certificate", cv, "reverse_of", "correlation"))
-    return e, r
-
-def dns_mail_records(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    d = raw.get("domain", "").strip()
-    if not d: return [], []
-    from easm.mail_provider import classify_mail_provider
-    nd = normalize_entity_value("domain", d); mx = raw.get("mx_records", [])
-    attrs = {"source":"dns_mail_records","mx_records":mx}
-    if raw.get("spf_record"): attrs["spf_record"] = raw["spf_record"]
-    if raw.get("dmarc_record"): attrs["dmarc_record"] = raw["dmarc_record"]
-    attrs["mail_provider"] = classify_mail_provider(mx_records=mx, spf_record=raw.get("spf_record",""))
-    e = [EntityCandidate("domain", nd, attrs)]; r = []
-    for m in mx:
-        ex = m.get("exchange","").strip()
-        if ex:
-            ne = normalize_entity_value("hostname", ex)
-            e.append(EntityCandidate("hostname", ne, {"source":"dns_mail_records","mx_for":nd}))
-            r.append(RelationshipCandidate("domain", nd, "hostname", ne, "mail_handled_by", "pivot"))
-    return e, r
-
-def shodan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip()
-    if not ip: return [], []
-    s = raw.get("shodan", raw)
-    ni = normalize_entity_value("ip", ip)
-    entities: list[EntityCandidate] = [EntityCandidate("ip", ni, {"source":"shodan","ports":s.get("ports",[]),"hostnames":s.get("hostnames",[]),"domains":s.get("domains",[]),"cpes":[c for c in s.get("cpes",[]) if isinstance(c,str)],"vulnerabilities":[v for v in s.get("vulns",[]) if isinstance(v,str)],"org":s.get("org",""),"isp":s.get("isp",""),"asn":s.get("asn",""),"country":s.get("country_name",""),"city":s.get("city",""),"os":s.get("os",""),"services":s.get("data",[])})]
-    rels: list[RelationshipCandidate] = []
-    for h in s.get("hostnames", []):
-        if h:
-            nh = normalize_entity_value("hostname", h)
-            entities.append(EntityCandidate("hostname", nh, {"source":"shodan"}))
-            rels.append(RelationshipCandidate("ip", ni, "hostname", nh, "reverse_of", "pivot"))
-    for d in s.get("domains", []):
-        if d:
-            nd = normalize_entity_value("domain", d)
-            entities.append(EntityCandidate("domain", nd, {"source":"shodan"}))
-            rels.append(RelationshipCandidate("ip", ni, "domain", nd, "belongs_to", "pivot"))
-    return entities, rels
-
-def abuseipdb(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip(); a = raw.get("abuseipdb")
-    if not ip or not a: return [], []
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"abuseipdb","threat_intel":{"abuseipdb":{"abuseConfidenceScore":a.get("abuseConfidenceScore"),"totalReports":a.get("totalReports"),"lastReportedAt":a.get("lastReportedAt"),"usageType":a.get("usageType",""),"hostnames":a.get("hostnames",[]),"domain":a.get("domain",""),"countryCode":a.get("countryCode",""),"isp":a.get("isp","")}}})], []
-
-def greynoise(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip(); g = raw.get("greynoise")
-    if not ip or not g: return [], []
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"greynoise","threat_intel":{"greynoise":{"classification":g.get("classification"),"noise":g.get("noise"),"riot":g.get("riot"),"name":g.get("name",""),"link":g.get("link","")}}})], []
-
-def urlscan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    d = raw.get("domain", "").strip(); u = raw.get("urlscan")
-    if not d or not u: return [], []
-    rr = u.get("results", []); mc = sum(1 for r in rr if r.get("is_malicious"))
-    return [EntityCandidate("domain", normalize_entity_value("domain", d), {"source":"urlscan","threat_intel":{"urlscan":{"total_results":u.get("total_results",0),"malicious_count":mc,"results":[{"page_url":r.get("page_url",""),"ip":r.get("ip",""),"domain":r.get("domain",""),"is_malicious":r.get("is_malicious",False),"screenshot_url":r.get("screenshot_url")} for r in rr],"malicious_urls":[r.get("page_url","") for r in rr if r.get("is_malicious")]}}})], []
-
-def censys(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    ip = raw.get("ip", "").strip(); c = raw.get("censys")
-    if not ip or not c: return [], []
-    return [EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"censys","services":c.get("services",[]),"location":c.get("location",{}),"autonomous_system":c.get("autonomous_system",{}),"last_updated_at":c.get("last_updated_at","")})], []
-
-def passive_dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    d = raw.get("domain", "").strip(); p = raw.get("passive_dns")
-    if not d or not p: return [], []
-    nd = normalize_entity_value("domain", d); ar = p.get("a_records", [])
-    e = [EntityCandidate("domain", nd, {"source":"securitytrails","dns_history":ar})]
-    for rec in ar:
-        ip = rec.get("ip","").strip()
-        if ip: e.append(EntityCandidate("ip", normalize_entity_value("ip", ip), {"source":"securitytrails","first_seen":rec.get("first_seen",""),"last_seen":rec.get("last_seen",""),"resolved_for":d}))
-    return e, []
-
-def cloud_bucket(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    bu = raw.get("bucket_url","").strip(); pr = raw.get("provider","").strip()
-    if not bu or not pr: return [], []
-    h = bu.split("/")[0]
-    return [EntityCandidate("domain", normalize_entity_value("domain", h), {"source":"cloud_enum","cloud_provider":pr,"bucket_name":raw.get("bucket_name",""),"public_access":raw.get("public_access",False),"public_list":raw.get("public_list",False),"status_code":raw.get("status_code")})], []
-
-def searchengine(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    sd = raw.get("subdomain","").strip()
-    if not sd: return [], []
-    return [EntityCandidate("domain", normalize_entity_value("domain", sd), {"source":"searchengine","source_engine":raw.get("source_engine",""),"discovered_from":raw.get("domain",""),"url":raw.get("url","")})], []
-
-def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    h = raw.get("hostname","").strip(); tc = raw.get("takeover_check")
-    if not h or not tc: return [], []
-    return [EntityCandidate("hostname", normalize_entity_value("hostname", h), {"source":"takeover","takeover_risk":tc.get("takeover_risk",False),"fingerprint_matches":tc.get("fingerprint_matches",[])})], []
-
-def _noop(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    return [], []
-
-
-OUTPUT_SCHEMAS = {
-    "asnmap": asnmap, "subfinder": subfinder, "dnstwist": dnstwist, "crtsh": crtsh,
-    "nuclei": nuclei, "wappalyzer": wappalyzer, "commoncrawl": commoncrawl,
-    "portscan": portscan, "screenshot": screenshot, "certstream": certstream,
-    "dns": dns, "reverse_dns": reverse_dns, "domain_extract": domain_extract,
-    "geoip": geoip, "tls_cert": tls_cert, "dns_mail_records": dns_mail_records,
-    "shodan": shodan, "abuseipdb": abuseipdb, "greynoise": greynoise,
-    "urlscan": urlscan, "censys": censys, "securitytrails": passive_dns,
-    "cloud_enum": cloud_bucket, "searchengine": searchengine, "takeover": subdomain_takeover,
-    "ripe_stat": ripe_stat,
-    "paste_monitor": _noop, "gist_monitor": _noop, "stackoverflow_monitor": _noop,
-    "discord_monitor": _noop, "github_scan": _noop, "breach_monitor": _noop,
-    "reverse_whois": _noop,
+    "rdap": rdap, "domain_rdap": domain_rdap, "cpe_vuln_enrich": cpe_vuln_enrich,
 }
