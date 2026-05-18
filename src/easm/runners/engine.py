@@ -302,9 +302,12 @@ async def standard_subprocess_run(
     Returns ``(inserted, deduped, errors)``.
     """
     inserted = deduped = errors = 0
+    items = iterate_over(target)
+    log(f"[runner] {source_name}: iterating over {len(items)} item(s)")
 
-    for item in iterate_over(target):
+    for item in items:
         cmd = [binary] + [arg.replace("[item]", item) for arg in args_template]
+        log(f"[runner] {source_name}: running {' '.join(cmd)}")
 
         ok, stdout, stderr = await exec_subprocess(cmd, timeout=timeout, logger_fn=log)
         if not ok:
@@ -316,6 +319,13 @@ async def standard_subprocess_run(
                     "target_id": target.id,
                     "stderr": stderr[:200] if stderr else "",
                 },
+            )
+            continue
+
+        if not stdout.strip():
+            logger.warning(
+                "%s produced no output for %s", binary, item,
+                extra={"item": item, "target_id": target.id},
             )
             continue
 

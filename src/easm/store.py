@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, cast
@@ -10,6 +11,8 @@ import asyncpg
 
 from easm.correlation.rule import Finding
 from easm.entity_store import deep_merge_attributes, normalize_entity_value
+
+logger = logging.getLogger(__name__)
 
 
 def _canonical_json(obj: Any) -> str:
@@ -333,10 +336,14 @@ class Store:
                 "UPDATE entities SET last_seen_at = NOW(), attributes = $1::jsonb WHERE id = $2",
                 json.dumps(merged), existing["id"],
             )
-            await self.pool.execute(
-                "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                existing["id"], raw_event_id,
-            )
+            if raw_event_id is not None:
+                try:
+                    await self.pool.execute(
+                        "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        existing["id"], raw_event_id,
+                    )
+                except Exception:
+                    logger.debug("raw event link insert skipped for entity %s", existing["id"])
             return existing["id"], False
         else:
             new_attributes.setdefault("triage_state", "discovered")
@@ -352,10 +359,14 @@ class Store:
                 json.dumps(new_attributes),
                 discovery_session_id, discovery_run_id, discovery_pivot_id,
             )
-            await self.pool.execute(
-                "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2)",
-                entity_id, raw_event_id,
-            )
+            if raw_event_id is not None:
+                try:
+                    await self.pool.execute(
+                        "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        entity_id, raw_event_id,
+                    )
+                except Exception:
+                    logger.debug("raw event link insert skipped for entity %s", entity_id)
             return entity_id, True
 
     async def upsert_relationship(
