@@ -87,12 +87,14 @@ async def main() -> None:
 
     logger.info("applying database migrations")
     alembic_cfg = AlembicConfig("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", dsn)
+    async_dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+    alembic_cfg.set_main_option("sqlalchemy.url", async_dsn)
     from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
     try:
         with ThreadPoolExecutor() as executor:
             await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
+        logger.info("database migrations applied successfully")
     except Exception as e:
         logger.exception("migration failed", error=str(e))
         raise
@@ -103,8 +105,11 @@ async def main() -> None:
     except Exception as e:
         logger.warning("could not clear stale pivot jobs (table may not exist yet)", error=str(e))
 
+    logger.info("initializing store")
     store = Store(pool)
+    logger.info("saving config snapshot")
     await store.save_config_snapshot(config.model_dump())
+    logger.info("checking binaries")
 
     binaries = check_binaries()
     for name, info in binaries.items():
@@ -113,14 +118,17 @@ async def main() -> None:
         else:
             logger.warning("binary not found", extra={"name": name, "error": info.get("error")})
 
+    logger.info("setting up scheduler")
     scheduler = Scheduler()
 
     set_config(config)
     set_store(store)
     set_scheduler(scheduler)
 
+    logger.info("setting up scheduled jobs")
     scheduler.setup_jobs(config, store)
     scheduler.start()
+    logger.info("scheduler started")
 
     if config.runtime.mode == "simulate" or not config.runtime.refresh_kev_on_startup:
         logger.info(
@@ -232,3 +240,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("received interrupt, shutting down")
+    except Exception as e:
+        logger.exception("fatal error", error=str(e))
+        sys.exit(1)
