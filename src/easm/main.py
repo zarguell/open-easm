@@ -160,7 +160,32 @@ async def main() -> None:
                 logger.info("background task monitor cancelled")
                 break
 
+
+async def health_check_and_restart():
+    """Health check that restarts server if unresponsive."""
+    import httpx
+    import os
+
+    while True:
+        await asyncio.sleep(30)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get("http://localhost:8000/api/healthz")
+                if resp.status_code != 200:
+                    logger.warning("health check returned non-200", status=resp.status_code)
+                else:
+                    logger.debug("health check OK")
+        except httpx.TimeoutException:
+            logger.warning("health check timeout - server unresponsive, will restart")
+            os._exit(1)  # Trigger container restart
+        except httpx.ConnectError:
+            logger.warning("health check connection failed - server down, will restart")
+            os._exit(1)
+        except Exception as e:
+            logger.warning("health check error", error=str(e))
+
     monitor_task = asyncio.create_task(monitor_background_tasks())
+    health_task = asyncio.create_task(health_check_and_restart())
 
     try:
         await server.serve()
@@ -169,6 +194,7 @@ async def main() -> None:
     finally:
         logger.info("shutting down services")
         monitor_task.cancel()
+        health_task.cancel()
         pivot_task.cancel()
         try:
             await pivot_task
