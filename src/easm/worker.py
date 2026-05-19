@@ -22,6 +22,23 @@ async def run_worker() -> None:
     config = load_config("config.yaml")
     pool = await create_pool(dsn)
     store = Store(pool)
+
+    logger.info("waiting for procrastinate schema")
+    for attempt in range(60):
+        try:
+            exists = await pool.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'procrastinate_jobs')"
+            )
+            if exists:
+                logger.info("procrastinate schema found")
+                break
+        except Exception as e:
+            logger.warning("schema check failed", attempt=attempt, error=str(e))
+        await asyncio.sleep(2)
+    else:
+        raise RuntimeError("procrastinate schema not found after 120s")
+
     set_context(pool, store, config)
 
     async with procrastinate_app.open_async():

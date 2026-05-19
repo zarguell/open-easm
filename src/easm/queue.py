@@ -9,10 +9,7 @@ def _build_connector() -> procrastinate.PsycopgConnector:
     dsn = os.environ.get("EASM_DATABASE_DSN", "")
     if not dsn:
         dsn = "postgresql://easm:easm@localhost:5432/easm"
-    return procrastinate.PsycopgConnector(
-        conninfo=dsn,
-        kwargs={"autocommit": True},
-    )
+    return procrastinate.PsycopgConnector(conninfo=dsn)
 
 
 app = procrastinate.App(

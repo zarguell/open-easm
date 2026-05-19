@@ -34,8 +34,6 @@ def upgrade() -> None:
         or os.environ.get("EASM_DATABASE_DSN")
         or ""
     )
-    if "localhost" not in dsn and "@postgres:" in dsn:
-        dsn = dsn.replace("@postgres:", "@localhost:")
 
     import psycopg
 
@@ -51,17 +49,6 @@ def upgrade() -> None:
             ) WHERE task_name = 'easm.tasks.pivot.execute_pivot'
               AND status IN ('succeeded', 'doing');
         """)
-
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_pivot_jobs_cooldown
-        ON procrastinate_jobs (
-            (args->>'org_id'),
-            (args->>'entity_type'),
-            (args->>'entity_value'),
-            (args->>'pivot_type')
-        ) WHERE task_name = 'easm.tasks.pivot.execute_pivot'
-          AND status IN ('succeeded', 'doing');
-    """)
 
 
 def downgrade() -> None:
