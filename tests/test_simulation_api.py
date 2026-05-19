@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,9 +18,15 @@ REPO_ROOT = Path(__file__).parents[1]
 
 @pytest.mark.asyncio
 @pytest.mark.simulation
+@patch("easm.tasks.pivot.execute_pivot")
 async def test_offline_manual_subfinder_run_creates_hostname_entity_and_dns_pivot(
-    db_pool,
+    mock_execute_pivot, db_pool,
 ) -> None:
+    defer_mock = AsyncMock()
+    configured = MagicMock()
+    configured.defer_async = defer_mock
+    mock_execute_pivot.configure = MagicMock(return_value=configured)
+
     config = load_config(REPO_ROOT / "config.offline.yaml")
     configure_runtime(config.runtime)
     store = Store(db_pool)
@@ -47,13 +54,10 @@ async def test_offline_manual_subfinder_run_creates_hostname_entity_and_dns_pivo
         (row["entity_type"], row["entity_value"]) for row in entity_rows
     ]
 
-    queued = await db_pool.fetchval(
-        """
-        SELECT COUNT(*)
-        FROM pivot_queue
-        WHERE target_id = 'offline-local'
-          AND pivot_type = 'dns_resolve'
-          AND entity_value = 'app.example.invalid'
-        """
-    )
-    assert queued == 1
+    defer_mock.assert_called()
+    dns_calls = [
+        c for c in defer_mock.call_args_list
+        if c.kwargs.get("pivot_type") == "dns_resolve"
+        and c.kwargs.get("entity_value") == "app.example.invalid"
+    ]
+    assert len(dns_calls) == 1

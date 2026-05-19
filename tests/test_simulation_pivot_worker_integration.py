@@ -3,9 +3,15 @@ from __future__ import annotations
 import pytest
 
 from easm.config import load_config
-from easm.pivot.worker import process_pivot_job_batch
+from easm.pivot.worker_legacy import process_pivot_job_batch
 from easm.runtime import configure_runtime
 from easm.store import Store
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy worker tests disabled: Store pivot methods (enqueue_pivot_job, "
+    "dequeue_pivot_jobs_batch, mark_pivot_completed/failed) were removed in "
+    "the Procrastinate migration"
+)
 
 
 @pytest.mark.asyncio

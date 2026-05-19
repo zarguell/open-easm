@@ -143,7 +143,9 @@ async def test_upsert_entity_with_valid_raw_event_id_creates_link(store, raw_eve
     )
 
     link = await store.pool.fetchrow(
-        "SELECT entity_id, raw_event_id FROM entity_raw_event_links WHERE entity_id = $1 AND raw_event_id = $2",
+        "SELECT entity_id, raw_event_id "
+        "FROM entity_raw_event_links "
+        "WHERE entity_id = $1 AND raw_event_id = $2",
         entity_id,
         raw_event_id,
     )
@@ -400,29 +402,6 @@ async def test_count_entities_with_type_filter(store, run_id):
 
     ips = await store.count_entities(entity_type="ip")
     assert ips == 1
-
-
-@pytest.mark.asyncio
-async def test_count_pivot_jobs_with_status_filter(store):
-    for i in range(3):
-        await store.enqueue_pivot_job(
-            org_id="default",
-            target_id="int-target",
-            entity_type="domain",
-            entity_value=f"pivot{i}.example.com",
-            entity_id=uuid.uuid4(),
-            pivot_type="crtsh_search",
-            depth=1,
-        )
-
-    pending = await store.count_pivot_jobs(status="pending")
-    assert pending == 3
-
-    running = await store.count_pivot_jobs(status="running")
-    assert running == 0
-
-    total = await store.count_pivot_jobs()
-    assert total == 3
 
 
 @pytest.mark.asyncio

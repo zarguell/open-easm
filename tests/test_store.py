@@ -129,30 +129,3 @@ async def test_insert_raw_event_with_org_id(store):
     assert events[0]["raw"] == {"domain": "example.com"}
     assert events[0]["org_id"] == "default"
 
-
-@pytest.mark.asyncio
-async def test_dequeue_pivot_jobs_batch_returns_multiple(store):
-    org_id = "test-org"
-    target_id = "test-target"
-    ids = []
-    for i in range(5):
-        jid = await store.enqueue_pivot_job(
-            org_id=org_id, target_id=target_id,
-            entity_type="domain", entity_value=f"sub{i}.example.com",
-            entity_id=uuid.uuid4(), pivot_type="crtsh_search", depth=1,
-        )
-        ids.append(jid)
-
-    batch = await store.dequeue_pivot_jobs_batch(limit=3)
-    assert len(batch) == 3
-    assert all(j["pivot_type"] == "crtsh_search" for j in batch)
-    assert all(j["status"] == "running" for j in batch)
-
-    batch2 = await store.dequeue_pivot_jobs_batch(limit=3)
-    assert len(batch2) == 2
-
-
-@pytest.mark.asyncio
-async def test_dequeue_pivot_jobs_batch_empty(store):
-    batch = await store.dequeue_pivot_jobs_batch(limit=50)
-    assert batch == []
