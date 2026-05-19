@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -171,6 +172,87 @@ async def _crtsh_run(target, store, trigger_type, run_id, log, http_client):
     )
 
 
+async def _certspotter_run(target, store, trigger_type, run_id, log, http_client):
+    """Run certspotter (SSLMate) CT API for each domain."""
+    import httpx
+    import os
+
+    def transform_fn(parsed, item):
+        # Handle different response format - certspotter returns array of issuances
+        if not isinstance(parsed, list):
+            return {}
+        results = []
+        for issuance in parsed:
+            dns_names = issuance.get("dns_names", [])
+            if not dns_names:
+                continue
+            name_value = "\n".join(dns_names)
+            results.append({
+                "name_value": name_value,
+                "issuer_name_id": "",
+                "not_before": issuance.get("not_before", ""),
+                "not_after": issuance.get("not_after", ""),
+                "serial_number": issuance.get("cert_sha256", ""),
+                "fingerprint": issuance.get("tbs_sha256", ""),
+            })
+        return results[0] if results else {}
+
+    api_key = os.environ.get("CERTSPOTTER_API_KEY", "")
+    if not api_key:
+        log("CERTSPOTTER_API_KEY not set, skipping")
+        return 0, 0, 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    base_url = "https://api.certspotter.com/v1/issuances"
+
+    inserted = 0
+    deduped = 0
+
+    for domain in target.match_rules.domains:
+        try:
+            url = f"{base_url}?domain={domain}&include_subdomains=true&expand=dns_names"
+            after = None
+            while True:
+                query_url = url
+                if after:
+                    query_url = f"{url}&after={after}"
+                resp = await http_client.get(query_url, headers=headers)
+                if resp.status_code == 429:
+                    log(f"certspotter rate limited for {domain}, backing off")
+                    await asyncio.sleep(5)
+                    continue
+                if resp.status_code != 200:
+                    log(f"certspotter error: {resp.status_code} for {domain}")
+                    break
+                issuances = resp.json()
+                if not issuances:
+                    break
+                for issuance in issuances:
+                    dns_names = issuance.get("dns_names", [])
+                    if not dns_names:
+                        continue
+                    raw = {
+                        "name_value": "\n".join(dns_names),
+                        "issuer_name_id": "",
+                        "not_before": issuance.get("not_before", ""),
+                        "not_after": issuance.get("not_after", ""),
+                        "serial_number": issuance.get("cert_sha256", ""),
+                        "fingerprint": issuance.get("tbs_sha256", ""),
+                    }
+                    ok = await store.insert_raw_event(
+                        target.org_id, target.id, "certspotter", raw, run_id
+                    )
+                    if ok:
+                        inserted += 1
+                    else:
+                        deduped += 1
+                after = issuances[-1].get("id")
+        except Exception as e:
+            log(f"certspotter error for {domain}: {e}")
+
+    return inserted, deduped, 0
+
+
 async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client):
     from urllib.parse import parse_qs, urlparse
 
@@ -258,6 +340,14 @@ def get_runner_registry() -> dict[str, RunnerDef]:
         "crtsh": RunnerDef(
             source_name="crtsh",
             run_fn=_crtsh_run,
+            supports_schedule=True,
+            supports_manual_trigger=True,
+            is_continuous=False,
+            output_schema=OUTPUT_SCHEMAS.get("crtsh"),
+        ),
+        "certspotter": RunnerDef(
+            source_name="certspotter",
+            run_fn=_certspotter_run,
             supports_schedule=True,
             supports_manual_trigger=True,
             is_continuous=False,
