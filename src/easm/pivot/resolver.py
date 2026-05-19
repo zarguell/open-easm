@@ -57,7 +57,7 @@ class PivotResolver:
                 continue
 
             if pivot_rule.coverage and pivot_rule.coverage.apex_covers_subdomains:
-                if entity_type == "domain":
+                if entity_type in ("domain", "hostname"):
                     apex = tldextract.extract(entity_value).registered_domain
                     if apex != entity_value:
                         covered = await self._check_apex_coverage(
