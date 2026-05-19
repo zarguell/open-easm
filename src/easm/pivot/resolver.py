@@ -115,8 +115,8 @@ class PivotResolver:
         row = await self.pool.fetchval("""
             SELECT 1 FROM pivot_queue
             WHERE org_id=$1 AND entity_value=$2 AND pivot_type=$3
-              AND status='completed'
-              AND completed_at > NOW() - ($4 || ' hours')::INTERVAL
+              AND status IN ('completed', 'running')
+              AND enqueued_at > NOW() - ($4 || ' hours')::INTERVAL
             LIMIT 1
         """, org_id, apex, pivot_type, str(cooldown_hours))
         return row
