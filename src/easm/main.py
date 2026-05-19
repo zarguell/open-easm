@@ -34,7 +34,10 @@ structlog.configure(
 )
 
 logging.basicConfig(
-    level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler(sys.stdout)]
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[logging.StreamHandler(sys.stderr)],
+    force=True,
 )
 
 logger = structlog.get_logger(__name__)
@@ -105,11 +108,8 @@ async def main() -> None:
     except Exception as e:
         logger.warning("could not clear stale pivot jobs (table may not exist yet)", error=str(e))
 
-    logger.info("initializing store")
     store = Store(pool)
-    logger.info("saving config snapshot")
     await store.save_config_snapshot(config.model_dump())
-    logger.info("checking binaries")
 
     binaries = check_binaries()
     for name, info in binaries.items():
@@ -118,17 +118,14 @@ async def main() -> None:
         else:
             logger.warning("binary not found", extra={"name": name, "error": info.get("error")})
 
-    logger.info("setting up scheduler")
     scheduler = Scheduler()
 
     set_config(config)
     set_store(store)
     set_scheduler(scheduler)
 
-    logger.info("setting up scheduled jobs")
     scheduler.setup_jobs(config, store)
     scheduler.start()
-    logger.info("scheduler started")
 
     if config.runtime.mode == "simulate" or not config.runtime.refresh_kev_on_startup:
         logger.info(
@@ -139,7 +136,7 @@ async def main() -> None:
     else:
         from easm.vuln_cache import refresh_kev_cache
         try:
-            kev_count = await refresh_kev_cache(pool)
+            kev_count = await asyncio.wait_for(refresh_kev_cache(pool), timeout=30)
             logger.info("initial kev cache populated", count=kev_count)
         except Exception:
             logger.exception("initial kev cache population failed (non-fatal)")
@@ -190,29 +187,26 @@ async def main() -> None:
                 logger.info("background task monitor cancelled")
                 break
 
+    async def health_check_and_restart():
+        import httpx
 
-async def health_check_and_restart():
-    """Health check that restarts server if unresponsive."""
-    import httpx
-    import os
-
-    while True:
-        await asyncio.sleep(30)
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get("http://localhost:8000/api/healthz")
-                if resp.status_code != 200:
-                    logger.warning("health check returned non-200", status=resp.status_code)
-                else:
-                    logger.debug("health check OK")
-        except httpx.TimeoutException:
-            logger.warning("health check timeout - server unresponsive, will restart")
-            os._exit(1)  # Trigger container restart
-        except httpx.ConnectError:
-            logger.warning("health check connection failed - server down, will restart")
-            os._exit(1)
-        except Exception as e:
-            logger.warning("health check error", error=str(e))
+        while True:
+            await asyncio.sleep(30)
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get("http://localhost:8000/api/healthz")
+                    if resp.status_code != 200:
+                        logger.warning("health check returned non-200", status=resp.status_code)
+                    else:
+                        logger.debug("health check OK")
+            except httpx.TimeoutException:
+                logger.warning("health check timeout - server unresponsive, will restart")
+                os._exit(1)
+            except httpx.ConnectError:
+                logger.warning("health check connection failed - server down, will restart")
+                os._exit(1)
+            except Exception as e:
+                logger.warning("health check error", error=str(e))
 
     monitor_task = asyncio.create_task(monitor_background_tasks())
     health_task = asyncio.create_task(health_check_and_restart())
