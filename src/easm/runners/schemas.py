@@ -570,7 +570,7 @@ def cpe_vuln_enrich(raw: dict) -> tuple[list[EntityCandidate], list[Relationship
 
 OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {
     "asnmap": asnmap, "subfinder": subfinder, "dnstwist": dnstwist,
-    "crtsh": crtsh, "nuclei": nuclei, "wappalyzer": wappalyzer,
+    "crtsh": crtsh, "certspotter": crtsh, "nuclei": nuclei, "wappalyzer": wappalyzer,
     "commoncrawl": commoncrawl, "portscan": portscan, "screenshot": screenshot,
     "certstream": certstream, "dns": dns, "reverse_dns": reverse_dns,
     "domain_extract": domain_extract, "geoip": geoip, "tls_cert": tls_cert,

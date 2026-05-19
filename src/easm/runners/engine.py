@@ -42,6 +42,46 @@ def iterate_domains_x2(target: Any) -> list[str]:
     return items
 
 
+async def iterate_hostnames_x2(target: Any, pool: Any) -> list[str]:
+    """Produce ``https://<hostname>`` and ``http://<hostname>`` for discovered hostnames.
+
+    Queries the entities table for hostname-type entities belonging to the target.
+    Falls back to iterate_domains_x2 if pool is unavailable.
+    """
+    items: list[str] = []
+
+    # Always include configured domains
+    for domain in target.match_rules.domains:
+        items.append(f"https://{domain}")
+        items.append(f"http://{domain}")
+
+    # Add discovered hostnames from entities table
+    if pool is not None:
+        try:
+            rows = await pool.fetch(
+                "SELECT entity_value FROM entities "
+                "WHERE target_id = $1 AND entity_type = 'hostname' "
+                "ORDER BY last_seen_at DESC",
+                target.id,
+            )
+            existing: set[str] = set()
+            for domain in target.match_rules.domains:
+                existing.add(f"https://{domain}")
+                existing.add(f"http://{domain}")
+            for row in rows:
+                hostname = row["entity_value"]
+                https_url = f"https://{hostname}"
+                http_url = f"http://{hostname}"
+                if https_url not in existing:
+                    items.append(https_url)
+                if http_url not in existing:
+                    items.append(http_url)
+        except Exception:
+            pass  # Fall back to domains only
+
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Subprocess execution
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { Badge } from '../shared/Badge'
 import { formatDateTime } from '../../lib/format'
 import { getEntityColor, getEntityBgColor } from '../../lib/entity-colors'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { StructuredAttributes } from './AttributeRenderers'
 
 interface EntityDetailProps {
   entityId: string
@@ -209,6 +210,8 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
 
       {certificateProfile && <CertificateProfileSummary profile={certificateProfile} />}
 
+      {attributes && <StructuredAttributes attributes={attributes} />}
+
       {entity.attributes && Object.keys(entity.attributes).length > 0 && (
         <div className="space-y-2">
           <button
@@ -220,7 +223,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
             ) : (
               <ChevronRight className="w-3 h-3" />
             )}
-            Attributes
+            Raw Attributes
           </button>
           {attributesOpen && (
             <pre className="rounded bg-canvas-soft p-3 text-xs text-body font-mono overflow-auto max-h-64">

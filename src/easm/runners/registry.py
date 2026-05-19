@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from easm.runners.engine import (
     get_runner_config,
-    iterate_domains_x2,
+    iterate_hostnames_x2,
     standard_http_run,
     standard_subprocess_run,
 )
@@ -103,6 +103,10 @@ async def _nuclei_run(target, store, trigger_type, run_id, log, http_client):
         parsed["url"] = item
         return parsed
 
+    # Get discovered hostnames from DB
+    hostnames = await iterate_hostnames_x2(target, store.pool)
+    log(f"[runner] nuclei: scanning {len(hostnames)} hostname(s)")
+
     return await standard_subprocess_run(
         target, store, trigger_type, run_id, log, http_client,
         source_name="nuclei",
@@ -113,7 +117,7 @@ async def _nuclei_run(target, store, trigger_type, run_id, log, http_client):
             "-severity", severity,
             "-jsonl", "-silent", "-no-interactsh",
         ],
-        iterate_over=iterate_domains_x2,
+        iterate_over=lambda t: hostnames,
         timeout=timeout,
         transform_fn=transform_fn,
         output_schema=OUTPUT_SCHEMAS.get("nuclei"),
@@ -136,12 +140,15 @@ async def _wappalyzer_run(target, store, trigger_type, run_id, log, http_client)
         ]
         return {"hostname": hostname, "url": item, "technologies": technologies}
 
+    hostnames = await iterate_hostnames_x2(target, store.pool)
+    log(f"[runner] wappalyzer: scanning {len(hostnames)} hostname(s)")
+
     return await standard_subprocess_run(
         target, store, trigger_type, run_id, log, http_client,
         source_name="wappalyzer",
         binary="webanalyze",
         args_template=["-host", "[item]", "-output", "json", "-silent"],
-        iterate_over=iterate_domains_x2,
+        iterate_over=lambda t: hostnames,
         timeout=timeout,
         transform_fn=transform_fn,
         output_schema=OUTPUT_SCHEMAS.get("wappalyzer"),

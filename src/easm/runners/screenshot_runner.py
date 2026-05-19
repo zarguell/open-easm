@@ -31,7 +31,8 @@ class ScreenshotRunner(BaseRunner):
         inserted = deduped = errors = 0
 
         if _async_playwright is None:
-            raise RuntimeError("playwright not installed: pip install playwright && playwright install chromium")
+            logger.warning("playwright not installed — skipping screenshots")
+            return 0, 0, 1
 
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
