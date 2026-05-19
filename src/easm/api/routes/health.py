@@ -15,7 +15,7 @@ def check_binaries() -> dict:
 
     runtime = get_runtime()
     results = {}
-    for binary in ["subfinder", "asnmap", "dnstwist"]:
+    for binary in ["subfinder", "asnmap", "dnstwist", "webanalyze", "nuclei", "nmap"]:
         if runtime.is_simulation or not runtime.config.allow_subprocess:
             results[binary] = {
                 "path": None,

@@ -111,7 +111,7 @@ async def _nuclei_run(target, store, trigger_type, run_id, log, http_client):
             "-u", "[item]",
             "-t", templates,
             "-severity", severity,
-            "-json", "-silent", "-no-interactsh",
+            "-jsonl", "-silent", "-no-interactsh",
         ],
         iterate_over=iterate_domains_x2,
         timeout=timeout,
@@ -128,13 +128,19 @@ async def _wappalyzer_run(target, store, trigger_type, run_id, log, http_client)
 
     def transform_fn(parsed, item):
         hostname = urlparse(item).hostname or ""
-        return {"hostname": hostname, "url": item, "technologies": parsed}
+        matches = parsed.get("matches", [])
+        technologies = [
+            {"name": m.get("app_name", ""), "version": m.get("version", "")}
+            for m in matches
+            if m.get("app_name")
+        ]
+        return {"hostname": hostname, "url": item, "technologies": technologies}
 
     return await standard_subprocess_run(
         target, store, trigger_type, run_id, log, http_client,
         source_name="wappalyzer",
-        binary="wappalyzer",
-        args_template=["[item]"],
+        binary="webanalyze",
+        args_template=["-host", "[item]", "-output", "json", "-silent"],
         iterate_over=iterate_domains_x2,
         timeout=timeout,
         transform_fn=transform_fn,
@@ -199,8 +205,7 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
 
     api_key = os.environ.get("CERTSPOTTER_API_KEY", "")
     if not api_key:
-        log("CERTSPOTTER_API_KEY not set, skipping")
-        return 0, 0, 0
+        raise RuntimeError("CERTSPOTTER_API_KEY not set — get a free key at https://sslmate.com/certspotter/")
 
     headers = {"Authorization": f"Bearer {api_key}"}
     base_url = "https://api.certspotter.com/v1/issuances"
@@ -259,7 +264,7 @@ async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client
     def _cc_iterate(t):
         urls: list[str] = []
         for domain in t.match_rules.domains:
-            for idx in ("2025-13", "2025-09", "2025-05"):
+            for idx in ("2026-17", "2026-13", "2026-09"):
                 base = f"http://index.commoncrawl.org/CC-MAIN-{idx}-index"
                 urls.append(f"{base}?url=*.{domain}&output=json")
                 urls.append(f"{base}?url={domain}&output=json")
@@ -273,6 +278,10 @@ async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client
             "url": parsed.get("url", ""),
             "domain": domain,
             "source": "commoncrawl",
+            "status": parsed.get("status", ""),
+            "mime": parsed.get("mime", ""),
+            "languages": parsed.get("languages", ""),
+            "timestamp": parsed.get("timestamp", ""),
         }
 
     return await standard_http_run(

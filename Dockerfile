@@ -11,7 +11,7 @@ RUN npm run build
 FROM python:3.14-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates unzip \
+    curl ca-certificates unzip nmap \
     && rm -rf /var/lib/apt/lists/*
 
 RUN SUBFINDER_VER="v2.14.0" && \
@@ -35,8 +35,11 @@ RUN NUCLEI_VER="v3.4.2" && \
     chmod +x /usr/local/bin/nuclei && \
     rm /tmp/nuclei.zip
 
-RUN apt-get update && apt-get install -y --no-install-recommends nmap && \
-    rm -rf /var/lib/apt/lists/*
+RUN WEBANALYZE_VER="v0.4.3" && \
+    curl -L "https://github.com/rverton/webanalyze/releases/download/${WEBANALYZE_VER}/webanalyze_Linux_x86_64.tar.gz" \
+    | tar xz -C /usr/local/bin/ webanalyze && \
+    chmod +x /usr/local/bin/webanalyze && \
+    cd /tmp && webanalyze -update && mv /tmp/technologies.json /usr/local/bin/
 
 # Download GeoLite2 database for geo-IP enrichment (non-fatal)
 RUN mkdir -p /app/data && \
@@ -49,14 +52,17 @@ COPY pyproject.toml .
 COPY src/ src/
 RUN pip install --no-cache-dir hatchling && pip install --no-cache-dir -e .
 
+RUN useradd --create-home --shell /bin/bash easm && \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers playwright install chromium --with-deps && \
+    chown -R easm:easm /opt/playwright-browsers
+
 COPY alembic/ alembic/
 COPY alembic.ini .
 
-# Copy the built UI from the first stage
 COPY --from=ui-builder /ui/dist /app/ui/dist
 
-RUN useradd --create-home --shell /bin/bash easm
 USER easm
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 EXPOSE 8000
 
 CMD ["python", "-m", "easm.main"]
