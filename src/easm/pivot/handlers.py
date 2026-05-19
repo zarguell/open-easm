@@ -246,7 +246,16 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
         if http_client is not None:
             certs = None
             for attempt in range(max_retries):
-                resp = await http_client.get(url)
+                try:
+                    resp = await http_client.get(url)
+                except (httpx.ReadTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning("crtsh request failed (%s) for %s, retrying %.1fs",
+                                   type(e).__name__, domain, wait)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait)
+                        continue
+                    break
                 if resp.status_code == 200:
                     certs = resp.json()
                     break
@@ -264,7 +273,16 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
             async with httpx.AsyncClient(timeout=30.0) as client:
                 certs = None
                 for attempt in range(max_retries):
-                    resp = await client.get(url)
+                    try:
+                        resp = await client.get(url)
+                    except (httpx.ReadTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                        wait = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning("crtsh request failed (%s) for %s, retrying %.1fs",
+                                       type(e).__name__, domain, wait)
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(wait)
+                            continue
+                        break
                     if resp.status_code == 200:
                         certs = resp.json()
                         break
