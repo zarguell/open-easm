@@ -25,7 +25,7 @@ async def execute_janitor(
         """
         DELETE FROM runs
         WHERE status = 'completed'
-          AND ended_at < NOW() - ($1 * interval '1 hour')
+          AND finished_at < NOW() - ($1 * interval '1 hour')
         """,
         delete_completed_older_than_hours,
     ) or 0
