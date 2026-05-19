@@ -429,7 +429,7 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
         if http_client is not None:
             try:
                 resp = await http_client.get(
-                    f"https://rdap.db.ripe.net/autnum/{numeric_asn}",
+                    f"https://rdap.db.ripe.net/registry/autnum/{numeric_asn}",
                     follow_redirects=True
                 )
                 resp.raise_for_status()
@@ -456,7 +456,7 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
             async with httpx.AsyncClient(timeout=15.0) as client:
                 try:
                     resp = await client.get(
-                        f"https://rdap.db.ripe.net/autnum/{numeric_asn}",
+                        f"https://rdap.db.ripe.net/registry/autnum/{numeric_asn}",
                         follow_redirects=True
                     )
                     resp.raise_for_status()
