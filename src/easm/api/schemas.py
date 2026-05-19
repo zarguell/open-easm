@@ -60,7 +60,7 @@ class RunDetail(RunSummary):
 
 
 class RunTriggerResponse(BaseModel):
-    run_id: str
+    run_id: str | None = None
     status: str
     message: str
 
