@@ -56,6 +56,23 @@ class PivotResolver:
             if pivot_rule.from_ != entity_type:
                 continue
 
+            if pivot_rule.via == "crtsh_search" and entity_type == "domain":
+                entity_attrs = await self.pool.fetchrow(
+                    "SELECT attributes FROM entities WHERE id = $1",
+                    entity_id,
+                )
+                if entity_attrs:
+                    attrs = entity_attrs["attributes"]
+                    import json
+                    if isinstance(attrs, str):
+                        attrs = json.loads(attrs)
+                    if attrs and attrs.get("source") == "crtsh":
+                        await self._insert_skipped(
+                            target.org_id, target.id, entity_type, entity_value,
+                            entity_id, pivot_rule.via, "discovered_by_crtsh",
+                        )
+                        continue
+
             if pivot_rule.coverage and pivot_rule.coverage.apex_covers_subdomains:
                 if entity_type in ("domain", "hostname"):
                     apex = tldextract.extract(entity_value).registered_domain
