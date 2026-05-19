@@ -264,8 +264,8 @@ async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client
     def _cc_iterate(t):
         urls: list[str] = []
         for domain in t.match_rules.domains:
-            for idx in ("2026-17", "2026-13", "2026-09"):
-                base = f"http://index.commoncrawl.org/CC-MAIN-{idx}-index"
+            for idx in ("2026-17",):
+                base = f"https://index.commoncrawl.org/CC-MAIN-{idx}-index"
                 urls.append(f"{base}?url=*.{domain}&output=json")
                 urls.append(f"{base}?url={domain}&output=json")
         return urls

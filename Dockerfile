@@ -54,7 +54,8 @@ RUN pip install --no-cache-dir hatchling && pip install --no-cache-dir -e .
 
 RUN useradd --create-home --shell /bin/bash easm && \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers playwright install chromium --with-deps && \
-    chown -R easm:easm /opt/playwright-browsers
+    chown -R easm:easm /opt/playwright-browsers && \
+    mkdir -p /app/data/screenshots && chown -R easm:easm /app/data
 
 COPY alembic/ alembic/
 COPY alembic.ini .
