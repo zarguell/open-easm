@@ -427,11 +427,23 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
         await sem.acquire()
     try:
         if http_client is not None:
-            resp = await http_client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
-            resp.raise_for_status()
-            data = resp.json()
             try:
-                resp2 = await http_client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
+                resp = await http_client.get(
+                    f"https://rdap.db.ripe.net/autnum/{numeric_asn}",
+                    follow_redirects=True
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 301:
+                    data = {}
+                else:
+                    raise
+            try:
+                resp2 = await http_client.get(
+                    f"https://rdap.arin.net/registry/autnum/{numeric_asn}",
+                    follow_redirects=True
+                )
                 resp2.raise_for_status()
                 data_arin = resp2.json()
             except Exception:
@@ -442,9 +454,18 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
                         results.append({"asn": asn, "org": entity.get("handle", ""), "source": "ripe"})
         else:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
-                resp.raise_for_status()
-                data = resp.json()
+                try:
+                    resp = await client.get(
+                        f"https://rdap.db.ripe.net/autnum/{numeric_asn}",
+                        follow_redirects=True
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 301:
+                        data = {}
+                    else:
+                        raise
                 try:
                     resp2 = await client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
                     resp2.raise_for_status()
