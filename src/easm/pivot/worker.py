@@ -259,7 +259,7 @@ async def _process_one_pivot_job(
                     ),
                 },
             )
-    except httpx.TransportError:
+    except (httpx.TransportError, httpx.ReadTimeout, httpx.ConnectError, httpx.NetworkError):
         logger.exception(
             "pivot transient error, will retry: "
             "job_id=%s pivot_type=%s entity_value=%s",
