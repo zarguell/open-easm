@@ -1434,3 +1434,60 @@ def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
     }
+
+
+async def migrate_ip_associations(self) -> dict[str, int]:
+    """One-time migration: associate existing IPs with known IP ranges and geo data."""
+    import ipaddress
+    from easm.pivot.handlers import GeoIpLookup
+
+    results = {"ip_range_associations": 0, "geo_enrichments": 0}
+
+    ip_ranges = await self.pool.fetch(
+        "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
+    )
+    range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
+
+    ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
+
+    for ip_row in ips:
+        ip_value = ip_row["entity_value"]
+        ip_id = ip_row["id"]
+        attrs = ip_row["attributes"]
+        if isinstance(attrs, str):
+            attrs = json.loads(attrs) if attrs else {}
+        elif attrs is None:
+            attrs = {}
+
+        for range_id, range_value in range_map.items():
+            try:
+                network = ipaddress.ip_network(range_value, strict=False)
+                if ipaddress.ip_address(ip_value) in network:
+                    await self.upsert_relationship(
+                        ip_row["org_id"],
+                        ip_id,
+                        range_id,
+                        "ip_in_range",
+                        "retroactive_migration",
+                    )
+                    results["ip_range_associations"] += 1
+                    break
+            except ValueError:
+                continue
+
+        if "geo" not in attrs:
+            try:
+                lookup = GeoIpLookup()
+                result = lookup.lookup(ip_value)
+                if result:
+                    attrs["geo"] = result.to_dict()
+                    await self.pool.execute(
+                        "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                        json.dumps(attrs), ip_id,
+                    )
+                    results["geo_enrichments"] += 1
+            except Exception:
+                pass
+
+    logger.info("migration complete", extra=results)
+    return results

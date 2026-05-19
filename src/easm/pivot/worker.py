@@ -182,6 +182,30 @@ async def _process_one_pivot_job(
                                 except Exception:
                                     logger.debug("ip range association failed", exc_info=True)
 
+                            if ec.entity_type == "ip":
+                                try:
+                                    from easm.pivot.handlers import GeoIpLookup
+                                    lookup = GeoIpLookup()
+                                    result = lookup.lookup(ec.value)
+                                    if result:
+                                        existing = await store.pool.fetchrow(
+                                            "SELECT attributes FROM entities WHERE id = $1",
+                                            entity_id,
+                                        )
+                                        attrs = existing["attributes"] if existing else {}
+                                        if isinstance(attrs, str):
+                                            attrs = json.loads(attrs)
+                                        if not attrs:
+                                            attrs = {}
+                                        attrs["geo"] = result.to_dict()
+                                        await store.pool.execute(
+                                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                                            json.dumps(attrs), entity_id,
+                                        )
+                                        logger.debug("enriched IP %s with geo data", ec.value)
+                                except Exception:
+                                    logger.debug("geo enrichment failed", exc_info=True)
+
                             try:
                                 source = source_name or job["pivot_type"] or "unknown"
                                 target_domains = (
