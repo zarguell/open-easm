@@ -74,6 +74,7 @@ class AllowedPivot(BaseModel):
     via: str
     cooldown_hours: int = 0
     coverage: CoverageConfig | None = None
+    skip_on_source: list[str] = Field(default_factory=list)
 
 
 class PivotConfig(BaseModel):
