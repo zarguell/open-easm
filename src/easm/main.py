@@ -15,7 +15,7 @@ from easm.api.deps import set_config, set_scheduler, set_store
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
 from easm.db import close_pool, create_pool
-from easm.pivot.worker import pivot_worker_pool
+from easm.queue import app as procrastinate_app
 from easm.runtime import configure_runtime
 from easm.scheduler import Scheduler
 from easm.store import Store
@@ -102,12 +102,6 @@ async def main() -> None:
         logger.exception("migration failed", error=str(e))
         raise
 
-    logger.info("clearing stale pivot jobs")
-    try:
-        await pool.execute("UPDATE pivot_queue SET status='pending' WHERE status='running'")
-    except Exception as e:
-        logger.warning("could not clear stale pivot jobs (table may not exist yet)", error=str(e))
-
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
 
@@ -124,8 +118,13 @@ async def main() -> None:
     set_store(store)
     set_scheduler(scheduler)
 
+    await procrastinate_app.open_async()
+
     scheduler.setup_jobs(config, store)
     scheduler.start()
+    scheduler.setup_janitor(store)
+
+    mode = os.environ.get("EASM_MODE", "all")
 
     if config.runtime.mode == "simulate" or not config.runtime.refresh_kev_on_startup:
         logger.info(
@@ -145,30 +144,29 @@ async def main() -> None:
 
     app = create_app()
 
-    for target in config.targets:
-        runner_cfg = target.runners.get("certstream")
-        if runner_cfg and runner_cfg.enabled:
-            if config.runtime.mode == "simulate" or not config.runtime.allow_external_network:
-                logger.info(
-                    "skipping certstream due to runtime policy",
-                    target_id=target.id,
-                    mode=config.runtime.mode,
-                    allow_external_network=config.runtime.allow_external_network,
+    if mode != "web":
+        for target in config.targets:
+            runner_cfg = target.runners.get("certstream")
+            if runner_cfg and runner_cfg.enabled:
+                if config.runtime.mode == "simulate" or not config.runtime.allow_external_network:
+                    logger.info(
+                        "skipping certstream due to runtime policy",
+                        target_id=target.id,
+                        mode=config.runtime.mode,
+                        allow_external_network=config.runtime.allow_external_network,
+                    )
+                    continue
+                from easm.runners import get_all_runners
+                from easm.runners.engine import execute_runner
+                cert_def = get_all_runners()["certstream"]
+                asyncio.create_task(
+                    execute_runner("certstream", cert_def.run_fn, target, store, "stream"),
+                    name=f"certstream-{target.id}",
                 )
-                continue
-            from easm.runners import get_all_runners
-            from easm.runners.engine import execute_runner
-            cert_def = get_all_runners()["certstream"]
-            asyncio.create_task(
-                execute_runner("certstream", cert_def.run_fn, target, store, "stream"),
-                name=f"certstream-{target.id}",
-            )
-            logger.info("started certstream", target_id=target.id)
+                logger.info("started certstream", target_id=target.id)
 
-    pivot_task = asyncio.create_task(pivot_worker_pool(
-        pool, config=config, n=3, batch_interval_ms=200
-    ))
-    logger.info("started pivot worker pool")
+    else:
+        logger.info("running in web-only mode, workers run separately")
 
     import uvicorn
     uvicorn_cfg = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
@@ -178,10 +176,6 @@ async def main() -> None:
         while True:
             try:
                 await asyncio.sleep(60)
-                if pivot_task.done():
-                    exc = pivot_task.exception()
-                    if exc:
-                        logger.error("pivot worker died", error=str(exc))
                 logger.debug("heartbeat: background tasks running")
             except asyncio.CancelledError:
                 logger.info("background task monitor cancelled")
@@ -219,11 +213,7 @@ async def main() -> None:
         logger.info("shutting down services")
         monitor_task.cancel()
         health_task.cancel()
-        pivot_task.cancel()
-        try:
-            await pivot_task
-        except asyncio.CancelledError:
-            pass
+        await procrastinate_app.close_async()
         await scheduler.shutdown()
         await close_pool(pool)
         logger.info("shutdown complete")

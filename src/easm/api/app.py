@@ -10,17 +10,26 @@ from fastapi.responses import JSONResponse
 
 from easm.api.routes import (
     alerts as alerts_route,
+)
+from easm.api.routes import (
     assets,
     certificates,
-    config as config_route,
     entities,
     events,
-    findings as findings_route,
     graph,
     health,
     pivot_queue,
     runs,
     targets,
+    workers,
+)
+from easm.api.routes import (
+    config as config_route,
+)
+from easm.api.routes import (
+    findings as findings_route,
+)
+from easm.api.routes import (
     triage as triage_route,
 )
 
@@ -68,13 +77,14 @@ def create_app() -> FastAPI:
     app.include_router(assets.router, prefix="/api")
     app.include_router(alerts_route.router, prefix="/api")
     app.include_router(triage_route.router)
+    app.include_router(workers.router)
 
     # Serve React SPA from ui/dist (production only)
     import os
     _static_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "dist")
     if os.path.isdir(_static_dir):
-        from fastapi.staticfiles import StaticFiles  # noqa: F401
         from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles  # noqa: F401
 
         @app.get("/ui/{full_path:path}")
         async def serve_spa(full_path: str):
