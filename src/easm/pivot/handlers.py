@@ -182,6 +182,36 @@ async def geoip_enrich(job: dict, pool) -> list[dict[str, Any]]:
     return [{"ip": ip, "geo": result.to_dict()}]
 
 
+async def ip_in_range(job: dict, pool) -> list[dict[str, Any]]:
+    """Check if an IP falls within any known IP range and create relationship."""
+    import ipaddress
+    ip = job["entity_value"]
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+    except ValueError:
+        return []
+    rows = await pool.fetch(
+        """
+        SELECT id, entity_value FROM entities
+        WHERE org_id = $1 AND target_id = $2 AND entity_type = 'ip_range'
+        """,
+        job["org_id"], job["target_id"],
+    )
+    results = []
+    for row in rows:
+        try:
+            network = ipaddress.ip_network(row["entity_value"], strict=False)
+            if ip_obj in network:
+                results.append({
+                    "source_ip": ip,
+                    "ip_range": row["entity_value"],
+                    "range_entity_id": str(row["id"]),
+                })
+        except ValueError:
+            continue
+    return results
+
+
 async def tls_cert_grab(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     port = 443
@@ -801,6 +831,7 @@ PIVOT_HANDLER_REGISTRY: dict[str, Any] = {
     "censys_enrich": censys_enrich,
     "cpe_vuln_enrich": cpe_vuln_enrich,
     "ip_to_asn": ip_to_asn,
+    "ip_in_range": ip_in_range,
 }
 
 # Source name mapping (pivot_type → source_name) for use by worker

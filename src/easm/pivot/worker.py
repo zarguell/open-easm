@@ -150,6 +150,38 @@ async def _process_one_pivot_job(
                                 discovery_run_id=run_id,
                                 discovery_pivot_id=job["id"],
                             )
+
+                            if ec.entity_type == "ip":
+                                try:
+                                    import ipaddress
+                                    ip_obj = ipaddress.ip_address(ec.value)
+                                    rows = await store.pool.fetch(
+                                        """
+                                        SELECT id, entity_value FROM entities
+                                        WHERE org_id = $1 AND target_id = $2 AND entity_type = 'ip_range'
+                                        """,
+                                        job["org_id"], job["target_id"],
+                                    )
+                                    for row in rows:
+                                        try:
+                                            network = ipaddress.ip_network(row["entity_value"], strict=False)
+                                            if ip_obj in network:
+                                                await store.upsert_relationship(
+                                                    job["org_id"],
+                                                    entity_id,
+                                                    row["id"],
+                                                    "ip_in_range",
+                                                    "auto_association",
+                                                    evidence_raw_event_id=re_id,
+                                                    runner=source_name or job["pivot_type"],
+                                                )
+                                                logger.debug("associated IP %s with range %s", ec.value, row["entity_value"])
+                                                break
+                                        except ValueError:
+                                            continue
+                                except Exception:
+                                    logger.debug("ip range association failed", exc_info=True)
+
                             try:
                                 source = source_name or job["pivot_type"] or "unknown"
                                 target_domains = (
