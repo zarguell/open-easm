@@ -9,6 +9,16 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
+_PIVOT_TASK = "easm.tasks.pivot.execute_pivot"
+_RUNNER_TASKS = ("easm.tasks.runner.execute_runner", "easm.tasks.janitor.execute_janitor")
+
+_STATUS_MAP = {
+    "todo": "pending",
+    "doing": "running",
+    "succeeded": "completed",
+    "failed": "failed",
+}
+
 
 def check_binaries() -> dict:
     from easm.runtime import get_runtime
@@ -59,8 +69,16 @@ async def healthz():
         try:
             await store.pool.fetchval("SELECT 1")
             db_ok = True
-            for status in ("pending", "running", "completed", "failed", "skipped_covered"):
-                pivot_queue[status] = await store.count_pivot_jobs(status=status)
+            rows = await store.pool.fetch(
+                "SELECT status, COUNT(*) as count FROM procrastinate_jobs "
+                "WHERE task_name = $1 GROUP BY status",
+                _PIVOT_TASK,
+            )
+            for row in rows:
+                mapped = _STATUS_MAP.get(row["status"], row["status"])
+                pivot_queue[mapped] = row["count"]
+            for old_status in ("pending", "running", "completed", "failed", "skipped_covered"):
+                pivot_queue.setdefault(old_status, 0)
         except Exception:
             db_ok = False
 
