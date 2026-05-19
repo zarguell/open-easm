@@ -289,13 +289,15 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
                 if resp.status_code == 200:
                     certs = resp.json()
                     break
-                if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                if resp.status_code in retry_statuses:
                     retry_after = resp.headers.get("Retry-After")
                     wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
                     logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
                                    resp.status_code, domain, wait)
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait)
+                        continue
+                    break
                 resp.raise_for_status()
             if certs is None:
                 raise RuntimeError("crtsh request failed after all retries")
@@ -316,13 +318,15 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
                     if resp.status_code == 200:
                         certs = resp.json()
                         break
-                    if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                    if resp.status_code in retry_statuses:
                         retry_after = resp.headers.get("Retry-After")
                         wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
                         logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
                                        resp.status_code, domain, wait)
-                        await asyncio.sleep(wait)
-                        continue
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(wait)
+                            continue
+                        break
                     resp.raise_for_status()
                 if certs is None:
                     raise RuntimeError("crtsh request failed after all retries")
