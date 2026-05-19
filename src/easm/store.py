@@ -376,56 +376,56 @@ class Store:
         discovery_pivot_id: uuid.UUID | None = None,
     ) -> tuple[uuid.UUID, bool]:
         normalized_value = normalize_entity_value(entity_type, entity_value)
+        new_attributes.setdefault("triage_state", "discovered")
 
-        existing = await self.pool.fetchrow(
+        # Use atomic upsert to avoid race condition between SELECT and INSERT
+        result = await self.pool.fetchrow(
             """
-            SELECT id, attributes FROM entities
-            WHERE org_id = $1 AND target_id = $2 AND entity_type = $3 AND entity_value = $4
+            INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
+                                  first_seen_at, last_seen_at, is_first_discovery,
+                                  discovery_session_id, discovery_run_id, discovery_pivot_id)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
+            ON CONFLICT (org_id, target_id, entity_type, entity_value) DO UPDATE
+            SET last_seen_at = NOW(),
+                attributes = $9::jsonb,
+                is_first_discovery = FALSE
+            RETURNING id, (xmax = 0) AS is_insert
             """,
             org_id, target_id, entity_type, normalized_value,
+            json.dumps(new_attributes),
+            discovery_session_id, discovery_run_id, discovery_pivot_id,
+            json.dumps(new_attributes),
         )
 
-        if existing:
-            existing_attrs = existing["attributes"]
-            if isinstance(existing_attrs, str):
-                existing_attrs = json.loads(existing_attrs)
-            merged = deep_merge_attributes(existing_attrs, new_attributes)
-            await self.pool.execute(
-                "UPDATE entities SET last_seen_at = NOW(), attributes = $1::jsonb WHERE id = $2",
-                json.dumps(merged), existing["id"],
+        entity_id = result["id"]
+        is_insert = result["is_insert"]
+
+        if not is_insert:
+            # Merge attributes for existing entity
+            existing = await self.pool.fetchrow(
+                "SELECT attributes FROM entities WHERE id = $1",
+                entity_id,
             )
-            if raw_event_id is not None:
-                try:
-                    await self.pool.execute(
-                        "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        existing["id"], raw_event_id,
-                    )
-                except Exception:
-                    logger.debug("raw event link insert skipped for entity %s", existing["id"])
-            return existing["id"], False
-        else:
-            new_attributes.setdefault("triage_state", "discovered")
-            entity_id = await self.pool.fetchval(
-                """
-                INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
-                                      first_seen_at, last_seen_at, is_first_discovery,
-                                      discovery_session_id, discovery_run_id, discovery_pivot_id)
-                VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
-                RETURNING id
-                """,
-                org_id, target_id, entity_type, normalized_value,
-                json.dumps(new_attributes),
-                discovery_session_id, discovery_run_id, discovery_pivot_id,
-            )
-            if raw_event_id is not None:
-                try:
-                    await self.pool.execute(
-                        "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        entity_id, raw_event_id,
-                    )
-                except Exception:
-                    logger.debug("raw event link insert skipped for entity %s", entity_id)
-            return entity_id, True
+            if existing:
+                existing_attrs = existing["attributes"]
+                if isinstance(existing_attrs, str):
+                    existing_attrs = json.loads(existing_attrs)
+                merged = deep_merge_attributes(existing_attrs, new_attributes)
+                await self.pool.execute(
+                    "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                    json.dumps(merged), entity_id,
+                )
+
+        if raw_event_id is not None:
+            try:
+                await self.pool.execute(
+                    "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    entity_id, raw_event_id,
+                )
+            except Exception:
+                logger.debug("raw event link insert skipped for entity %s", entity_id)
+
+        return entity_id, is_insert
 
     async def update_entity_asset_profile(
         self,
