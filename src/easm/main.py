@@ -146,13 +146,37 @@ async def main() -> None:
     import uvicorn
     uvicorn_cfg = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(uvicorn_cfg)
+
+    async def monitor_background_tasks():
+        while True:
+            try:
+                await asyncio.sleep(60)
+                if pivot_task.done():
+                    exc = pivot_task.exception()
+                    if exc:
+                        logger.error("pivot worker died", error=str(exc))
+                logger.debug("heartbeat: background tasks running")
+            except asyncio.CancelledError:
+                logger.info("background task monitor cancelled")
+                break
+
+    monitor_task = asyncio.create_task(monitor_background_tasks())
+
     try:
         await server.serve()
+    except Exception as e:
+        logger.exception("server crashed", error=str(e))
     finally:
+        logger.info("shutting down services")
+        monitor_task.cancel()
         pivot_task.cancel()
-        await pivot_task
+        try:
+            await pivot_task
+        except asyncio.CancelledError:
+            pass
         await scheduler.shutdown()
         await close_pool(pool)
+        logger.info("shutdown complete")
 
 
 if __name__ == "__main__":
