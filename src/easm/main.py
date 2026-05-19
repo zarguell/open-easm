@@ -72,6 +72,19 @@ async def main() -> None:
     logger.info("creating database pool")
     pool = await create_pool(dsn)
 
+    logger.info("waiting for database to be ready")
+    for attempt in range(30):
+        try:
+            await pool.fetchval("SELECT 1")
+            logger.info("database is ready")
+            break
+        except Exception as e:
+            if attempt == 29:
+                logger.error("database not ready after 30 attempts", error=str(e))
+                raise
+            logger.warning("database not ready, retrying", attempt=attempt + 1, error=str(e))
+            await asyncio.sleep(2)
+
     logger.info("applying database migrations")
     alembic_cfg = AlembicConfig("alembic.ini")
     async_dsn = dsn.replace("postgresql://", "postgresql+asyncpg://")
