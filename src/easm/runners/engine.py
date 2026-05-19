@@ -346,6 +346,7 @@ async def standard_subprocess_run(
     inserted = deduped = errors = 0
     items = iterate_over(target)
     log(f"[runner] {source_name}: iterating over {len(items)} item(s)")
+    first_error: str | None = None
 
     for item in items:
         cmd = [binary] + [arg.replace("[item]", item) for arg in args_template]
@@ -354,6 +355,9 @@ async def standard_subprocess_run(
         ok, stdout, stderr = await exec_subprocess(cmd, timeout=timeout, logger_fn=log)
         if not ok:
             errors += 1
+            err_msg = stderr[:200] if stderr else "unknown error"
+            if first_error is None:
+                first_error = f"{binary} failed for {item}: {err_msg}"
             logger.warning(
                 "%s error for %s", binary, item,
                 extra={
@@ -396,6 +400,9 @@ async def standard_subprocess_run(
                                           raw_event_id=raw_event_id)
             else:
                 deduped += 1
+
+    if errors > 0 and inserted == 0 and first_error:
+        raise RuntimeError(first_error)
 
     return inserted, deduped, errors
 

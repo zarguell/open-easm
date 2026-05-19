@@ -28,6 +28,16 @@ RUN ASNMAP_VER="v1.1.1" && \
     chmod +x /usr/local/bin/asnmap && \
     rm /tmp/asnmap.zip
 
+RUN NUCLEI_VER="v3.4.2" && \
+    curl -L "https://github.com/projectdiscovery/nuclei/releases/download/${NUCLEI_VER}/nuclei_${NUCLEI_VER#v}_linux_amd64.zip" \
+    -o /tmp/nuclei.zip && \
+    unzip /tmp/nuclei.zip -d /usr/local/bin/ nuclei && \
+    chmod +x /usr/local/bin/nuclei && \
+    rm /tmp/nuclei.zip
+
+RUN apt-get update && apt-get install -y --no-install-recommends nmap && \
+    rm -rf /var/lib/apt/lists/*
+
 # Download GeoLite2 database for geo-IP enrichment (non-fatal)
 RUN mkdir -p /app/data && \
     curl -fsSL "https://github.com/zarguell/TA-geoip/raw/refs/heads/master/bin/GeoLite2-City.mmdb" \
