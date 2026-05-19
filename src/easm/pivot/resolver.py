@@ -57,21 +57,17 @@ class PivotResolver:
                 continue
 
             if pivot_rule.via == "crtsh_search" and entity_type == "domain":
-                entity_attrs = await self.pool.fetchrow(
-                    "SELECT attributes FROM entities WHERE id = $1",
-                    entity_id,
-                )
-                if entity_attrs:
-                    attrs = entity_attrs["attributes"]
-                    import json
-                    if isinstance(attrs, str):
-                        attrs = json.loads(attrs)
-                    if attrs and attrs.get("source") == "crtsh":
-                        await self._insert_skipped(
-                            target.org_id, target.id, entity_type, entity_value,
-                            entity_id, pivot_rule.via, "discovered_by_crtsh",
-                        )
-                        continue
+                has_cert = await self.pool.fetchrow("""
+                    SELECT 1 FROM entity_relationships
+                    WHERE org_id = $1 AND source_entity_id = $2 AND relationship_type = 'issued_for'
+                    LIMIT 1
+                """, target.org_id, entity_id)
+                if has_cert:
+                    await self._insert_skipped(
+                        target.org_id, target.id, entity_type, entity_value,
+                        entity_id, pivot_rule.via, "already_has_certificate",
+                    )
+                    continue
 
             if pivot_rule.coverage and pivot_rule.coverage.apex_covers_subdomains:
                 if entity_type in ("domain", "hostname"):
