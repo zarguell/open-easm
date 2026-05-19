@@ -60,15 +60,6 @@ targets:
           via: domain_extract
           cooldown_hours: 24
         - from: domain
-          to: certificate
-          via: crtsh_search
-          cooldown_hours: 24
-          coverage:
-            apex_covers_subdomains: true
-          skip_on_source:
-            - crtsh
-            - certstream
-        - from: domain
           to: domain
           via: dns_mail_records
           cooldown_hours: 24
@@ -129,15 +120,6 @@ targets:
           to: domain
           via: domain_extract
           cooldown_hours: 24
-        - from: domain
-          to: certificate
-          via: crtsh_search
-          cooldown_hours: 24
-          coverage:
-            apex_covers_subdomains: true
-          skip_on_source:
-            - crtsh
-            - certstream
         - from: domain
           to: domain
           via: dns_mail_records
