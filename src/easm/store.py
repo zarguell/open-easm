@@ -1490,4 +1490,18 @@ async def migrate_ip_associations(self) -> dict[str, int]:
                 pass
 
     logger.info("migration complete", extra=results)
-    return results
+        return results
+
+    async def cleanup_stale_pivots(self, pivot_types: list[str]) -> int:
+        """Remove pending/running pivots that are no longer in config."""
+        if not pivot_types:
+            return 0
+        placeholders = ",".join(f"${i+1}" for i in range(len(pivot_types)))
+        result = await self.pool.execute(f"""
+            DELETE FROM pivot_queue
+            WHERE status IN ('pending', 'running')
+            AND pivot_type IN ({placeholders})
+        """, *pivot_types)
+        deleted = int(result.split()[-1]) if result.split()[-1].isdigit() else 0
+        logger.info("cleaned up stale pivots", extra={"deleted": deleted, "types": pivot_types})
+        return deleted
