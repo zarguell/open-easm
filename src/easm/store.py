@@ -1360,6 +1360,8 @@ def _row_to_asset_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
     }
 
 
+
+
 def _json_field(value: Any, default: Any) -> Any:
     if value is None:
         return default
@@ -1437,71 +1439,71 @@ def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
 
 
 async def migrate_ip_associations(self) -> dict[str, int]:
-    """One-time migration: associate existing IPs with known IP ranges and geo data."""
-    import ipaddress
-    from easm.pivot.handlers import GeoIpLookup
+        """One-time migration: associate existing IPs with known IP ranges and geo data."""
+        import ipaddress
+        from easm.pivot.handlers import GeoIpLookup
 
-    results = {"ip_range_associations": 0, "geo_enrichments": 0}
+        results = {"ip_range_associations": 0, "geo_enrichments": 0}
 
-    ip_ranges = await self.pool.fetch(
-        "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
-    )
-    range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
+        ip_ranges = await self.pool.fetch(
+            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
+        )
+        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
 
-    ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
+        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
 
-    for ip_row in ips:
-        ip_value = ip_row["entity_value"]
-        ip_id = ip_row["id"]
-        attrs = ip_row["attributes"]
-        if isinstance(attrs, str):
-            attrs = json.loads(attrs) if attrs else {}
-        elif attrs is None:
-            attrs = {}
+        for ip_row in ips:
+            ip_value = ip_row["entity_value"]
+            ip_id = ip_row["id"]
+            attrs = ip_row["attributes"]
+            if isinstance(attrs, str):
+                attrs = json.loads(attrs) if attrs else {}
+            elif attrs is None:
+                attrs = {}
 
-        for range_id, range_value in range_map.items():
-            try:
-                network = ipaddress.ip_network(range_value, strict=False)
-                if ipaddress.ip_address(ip_value) in network:
-                    await self.upsert_relationship(
-                        ip_row["org_id"],
-                        ip_id,
-                        range_id,
-                        "ip_in_range",
-                        "retroactive_migration",
-                    )
-                    results["ip_range_associations"] += 1
-                    break
-            except ValueError:
-                continue
+            for range_id, range_value in range_map.items():
+                try:
+                    network = ipaddress.ip_network(range_value, strict=False)
+                    if ipaddress.ip_address(ip_value) in network:
+                        await self.upsert_relationship(
+                            ip_row["org_id"],
+                            ip_id,
+                            range_id,
+                            "ip_in_range",
+                            "retroactive_migration",
+                        )
+                        results["ip_range_associations"] += 1
+                        break
+                except ValueError:
+                    continue
 
-        if "geo" not in attrs:
-            try:
-                lookup = GeoIpLookup()
-                result = lookup.lookup(ip_value)
-                if result:
-                    attrs["geo"] = result.to_dict()
-                    await self.pool.execute(
-                        "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
-                        json.dumps(attrs), ip_id,
-                    )
-                    results["geo_enrichments"] += 1
-            except Exception:
-                pass
+            if "geo" not in attrs:
+                try:
+                    lookup = GeoIpLookup()
+                    result = lookup.lookup(ip_value)
+                    if result:
+                        attrs["geo"] = result.to_dict()
+                        await self.pool.execute(
+                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                            json.dumps(attrs), ip_id,
+                        )
+                        results["geo_enrichments"] += 1
+                except Exception:
+                    pass
 
-    logger.info("migration complete", extra=results)
+        logger.info("migration complete", extra=results)
         return results
 
-    async def cleanup_stale_pivots(self, pivot_types: list[str]) -> int:
-        """Remove pending/running pivots that are no longer in config."""
-        if not pivot_types:
-            return 0
-        placeholders = ",".join(f"${i+1}" for i in range(len(pivot_types)))
-        result = await self.pool.execute(f"""
-            DELETE FROM pivot_queue
-            WHERE status IN ('pending', 'running')
-            AND pivot_type IN ({placeholders})
-        """, *pivot_types)
-        deleted = int(result.split()[-1]) if result.split()[-1].isdigit() else 0
-        logger.info("cleaned up stale pivots", extra={"deleted": deleted, "types": pivot_types})
-        return deleted
+        async def cleanup_stale_pivots(self, pivot_types: list[str]) -> int:
+            """Remove pending/running pivots that are no longer in config."""
+            if not pivot_types:
+                return 0
+            placeholders = ",".join(f"${i+1}" for i in range(len(pivot_types)))
+            result = await self.pool.execute(f"""
+                DELETE FROM pivot_queue
+                WHERE status IN ('pending', 'running')
+                AND pivot_type IN ({placeholders})
+            """, *pivot_types)
+            deleted = int(result.split()[-1]) if result.split()[-1].isdigit() else 0
+            logger.info("cleaned up stale pivots", extra={"deleted": deleted, "types": pivot_types})
+            return deleted
