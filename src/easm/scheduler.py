@@ -33,7 +33,7 @@ class Scheduler:
                 extra={"target_id": target.id, "runner": runner_name},
             )
             return
-        schedule = cfg_dict.get("schedule", "0 0 * * *")
+        schedule = cfg_dict.get("schedule") or "0 0 * * *"
         job_id = f"{target.id}-{runner_name}"
         if self._scheduler.get_job(job_id) is not None:
             return
