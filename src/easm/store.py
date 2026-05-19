@@ -387,14 +387,12 @@ class Store:
             VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
             ON CONFLICT (org_id, target_id, entity_type, entity_value) DO UPDATE
             SET last_seen_at = NOW(),
-                attributes = $9::jsonb,
                 is_first_discovery = FALSE
             RETURNING id, (xmax = 0) AS is_insert
             """,
             org_id, target_id, entity_type, normalized_value,
             json.dumps(new_attributes),
             discovery_session_id, discovery_run_id, discovery_pivot_id,
-            json.dumps(new_attributes),
         )
 
         entity_id = result["id"]
@@ -866,112 +864,7 @@ class Store:
         return [dict(r) for r in rows]
 
     # ── Pivot methods ─────────────────────────────────────────────────
-
-    async def enqueue_pivot_job(
-        self,
-        org_id: str,
-        target_id: str,
-        entity_type: str,
-        entity_value: str,
-        entity_id: uuid.UUID,
-        pivot_type: str,
-        depth: int,
-        parent_entity_id: uuid.UUID | None = None,
-        discovery_session_id: uuid.UUID | None = None,
-        run_id: uuid.UUID | None = None,
-    ) -> uuid.UUID:
-        row = await self.pool.fetchrow("""
-            INSERT INTO pivot_queue (org_id, target_id, entity_type, entity_value, entity_id,
-                                      pivot_type, depth, parent_entity_id, discovery_session_id, run_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id
-        """, org_id, target_id, entity_type, entity_value, entity_id,
-            pivot_type, depth, parent_entity_id, discovery_session_id, run_id)
-        return row["id"]
-
-    async def dequeue_pivot_job(self) -> dict[str, Any] | None:
-        row = await self.pool.fetchrow(
-            """
-            WITH picked AS (
-                SELECT id
-                FROM pivot_queue
-                WHERE status = 'pending'
-                ORDER BY enqueued_at
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED
-            )
-            UPDATE pivot_queue pq
-            SET status = 'running',
-                started_at = NOW()
-            FROM picked
-            WHERE pq.id = picked.id
-            RETURNING pq.*
-            """
-        )
-        return dict(row) if row else None
-
-    async def dequeue_pivot_jobs_batch(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Dequeue up to ``limit`` pending pivot jobs.
-
-        Returns jobs already marked as 'running'.
-        """
-        rows = await self.pool.fetch("""
-            WITH picked AS (
-                SELECT id FROM pivot_queue WHERE status = 'pending'
-                ORDER BY enqueued_at LIMIT $1 FOR UPDATE SKIP LOCKED
-            )
-            UPDATE pivot_queue pq SET status = 'running', started_at = NOW()
-            FROM picked WHERE pq.id = picked.id
-            RETURNING pq.*
-        """, limit)
-        return [dict(row) for row in rows]
-
-    async def mark_pivot_completed(self, job_id: uuid.UUID) -> None:
-        await self.pool.execute(
-            "UPDATE pivot_queue SET status='completed', completed_at=NOW() WHERE id=$1", job_id,
-        )
-
-    async def mark_pivot_failed(self, job_id: uuid.UUID, error: str) -> None:
-        await self.pool.execute(
-            "UPDATE pivot_queue SET status='failed', completed_at=NOW(), error_message=$2 WHERE id=$1",
-            job_id, error,
-        )
-
-    async def reset_orphaned_pivot_jobs(self) -> None:
-        await self.pool.execute(
-            "UPDATE pivot_queue SET status='pending' WHERE status='running'",
-        )
-
-    async def count_pivot_jobs(
-        self,
-        status: str | None = None,
-        target_id: str | None = None,
-        entity_type: str | None = None,
-        pivot_type: str | None = None,
-    ) -> int:
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
-        if status:
-            idx += 1
-            conditions.append(f"status = ${idx}")
-            params.append(status)
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if entity_type:
-            idx += 1
-            conditions.append(f"entity_type = ${idx}")
-            params.append(entity_type)
-        if pivot_type:
-            idx += 1
-            conditions.append(f"pivot_type = ${idx}")
-            params.append(pivot_type)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        return await self.pool.fetchval(
-            f"SELECT COUNT(*) FROM pivot_queue {where}", *params,
-        ) or 0
+    # (removed — pivots now use Procrastinate tasks)
 
     async def count_runs(
         self,
@@ -1493,17 +1386,3 @@ async def migrate_ip_associations(self) -> dict[str, int]:
 
         logger.info("migration complete", extra=results)
         return results
-
-        async def cleanup_stale_pivots(self, pivot_types: list[str]) -> int:
-            """Remove pending/running pivots that are no longer in config."""
-            if not pivot_types:
-                return 0
-            placeholders = ",".join(f"${i+1}" for i in range(len(pivot_types)))
-            result = await self.pool.execute(f"""
-                DELETE FROM pivot_queue
-                WHERE status IN ('pending', 'running')
-                AND pivot_type IN ({placeholders})
-            """, *pivot_types)
-            deleted = int(result.split()[-1]) if result.split()[-1].isdigit() else 0
-            logger.info("cleaned up stale pivots", extra={"deleted": deleted, "types": pivot_types})
-            return deleted

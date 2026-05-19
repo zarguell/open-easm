@@ -37,7 +37,8 @@ class PivotResolver:
 
         max_queue_depth = getattr(pivot_config, 'max_queue_depth', 10000)
         count = await self.pool.fetchval(
-            "SELECT COUNT(*) FROM pivot_queue WHERE status = 'pending'"
+            "SELECT COUNT(*) FROM procrastinate_jobs "
+            "WHERE task_name = 'easm.tasks.pivot.execute_pivot' AND status = 'todo'"
         )
         if count is not None and count >= max_queue_depth:
             logger.warning(
@@ -67,9 +68,14 @@ class PivotResolver:
                         import json
                         attrs = json.loads(attrs)
                     if attrs and attrs.get("source") in pivot_rule.skip_on_source:
-                        await self._insert_skipped(
-                            target.org_id, target.id, entity_type, entity_value,
-                            entity_id, pivot_rule.via, f"skip_on_source:{attrs.get('source')}",
+                        logger.debug(
+                            "skipping pivot due to skip_on_source",
+                            extra={
+                                "entity_type": entity_type,
+                                "entity_value": entity_value,
+                                "pivot_type": pivot_rule.via,
+                                "source": attrs.get("source"),
+                            },
                         )
                         continue
 
@@ -81,9 +87,14 @@ class PivotResolver:
                             target.org_id, apex, pivot_rule.via, pivot_rule.cooldown_hours,
                         )
                         if covered:
-                            await self._insert_skipped(
-                                target.org_id, target.id, entity_type, entity_value,
-                                entity_id, pivot_rule.via, f"covered_by_apex:{apex}",
+                            logger.debug(
+                                "skipping pivot due to apex coverage",
+                                extra={
+                                    "entity_type": entity_type,
+                                    "entity_value": entity_value,
+                                    "pivot_type": pivot_rule.via,
+                                    "apex": apex,
+                                },
                             )
                             continue
 
@@ -95,30 +106,38 @@ class PivotResolver:
                 if recent:
                     continue
 
-            await self.store.enqueue_pivot_job(
+            from easm.tasks.pivot import execute_pivot
+
+            await execute_pivot.configure(
+                queue="pivot",
+            ).defer_async(
                 org_id=target.org_id,
                 target_id=target.id,
                 entity_type=entity_type,
                 entity_value=entity_value,
-                entity_id=entity_id,
+                entity_id=str(entity_id),
                 pivot_type=pivot_rule.via,
                 depth=depth,
-                parent_entity_id=parent_entity_id,
-                discovery_session_id=discovery_session_id,
+                parent_entity_id=str(parent_entity_id) if parent_entity_id else None,
+                discovery_session_id=str(discovery_session_id) if discovery_session_id else None,
             )
 
             # Auto-enqueue CPE→CVE enrichment after tech-detection pivots
             if pivot_rule.via in ("shodan_enrich",) and depth + 1 <= pivot_config.max_depth:
-                await self.store.enqueue_pivot_job(
+                await execute_pivot.configure(
+                    queue="pivot",
+                ).defer_async(
                     org_id=target.org_id,
                     target_id=target.id,
                     entity_type=entity_type,
                     entity_value=entity_value,
-                    entity_id=entity_id,
+                    entity_id=str(entity_id),
                     pivot_type="cpe_vuln_enrich",
                     depth=depth + 1,
-                    parent_entity_id=entity_id,
-                    discovery_session_id=discovery_session_id,
+                    parent_entity_id=str(entity_id),
+                    discovery_session_id=(
+                        str(discovery_session_id) if discovery_session_id else None
+                    ),
                 )
 
     async def _get_classification(self, entity_id) -> str | None:
@@ -130,26 +149,29 @@ class PivotResolver:
 
     async def _check_apex_coverage(self, org_id, apex, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""
-            SELECT 1 FROM pivot_queue
-            WHERE org_id=$1 AND entity_value=$2 AND pivot_type=$3
-              AND status IN ('completed', 'running')
-              AND enqueued_at > NOW() - ($4 || ' hours')::INTERVAL
+            SELECT 1 FROM procrastinate_jobs j
+            WHERE j.task_name = 'easm.tasks.pivot.execute_pivot'
+              AND j.status IN ('succeeded', 'doing', 'todo')
+              AND j.args->>'org_id' = $1
+              AND j.args->>'entity_value' = $2
+              AND j.args->>'pivot_type' = $3
             LIMIT 1
-        """, org_id, apex, pivot_type, str(cooldown_hours))
+        """, org_id, apex, pivot_type)
         return row
 
     async def _check_cooldown(self, org_id, entity_type, entity_value, pivot_type, cooldown_hours):
         row = await self.pool.fetchval("""
-            SELECT 1 FROM pivot_queue
-            WHERE org_id=$1 AND entity_type=$2 AND entity_value=$3 AND pivot_type=$4
-              AND status IN ('completed', 'running')
-              AND enqueued_at > NOW() - ($5 || ' hours')::INTERVAL
+            SELECT 1 FROM procrastinate_events ev
+            JOIN procrastinate_jobs j ON ev.job_id = j.id
+            WHERE j.task_name = 'easm.tasks.pivot.execute_pivot'
+              AND j.status = 'succeeded'
+              AND j.args->>'org_id' = $1
+              AND j.args->>'entity_type' = $2
+              AND j.args->>'entity_value' = $3
+              AND j.args->>'pivot_type' = $4
+              AND ev.type = 'succeeded'
+              AND ev.at > NOW() - ($5 || ' hours')::INTERVAL
             LIMIT 1
         """, org_id, entity_type, entity_value, pivot_type, str(cooldown_hours))
         return row
 
-    async def _insert_skipped(self, org_id, target_id, entity_type, entity_value, entity_id, pivot_type, reason):
-        await self.pool.execute("""
-            INSERT INTO pivot_queue (org_id, target_id, entity_type, entity_value, entity_id, pivot_type, status, skip_reason)
-            VALUES ($1, $2, $3, $4, $5, $6, 'skipped_covered', $7)
-        """, org_id, target_id, entity_type, entity_value, entity_id, pivot_type, reason)

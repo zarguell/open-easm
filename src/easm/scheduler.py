@@ -38,8 +38,6 @@ class Scheduler:
         if self._scheduler.get_job(job_id) is not None:
             return
 
-        from easm.runners.engine import execute_runner
-
         async def _run_job():
             active = await store.count_active_runs(target.id, runner_def.source_name)
             if active > 0:
@@ -49,18 +47,20 @@ class Scheduler:
                 )
                 return
 
-            http_client = get_runtime().make_http_client()
-            try:
-                await execute_runner(
-                    runner_def.source_name,
-                    runner_def.run_fn,
-                    target,
-                    store,
-                    "scheduled",
-                    http_client=http_client,
-                )
-            finally:
-                await http_client.aclose()
+            from easm.tasks.runner import execute_runner
+
+            await execute_runner.configure(
+                priority=0,
+            ).defer_async(
+                runner_name=runner_name,
+                target_id=target.id,
+                trigger_type="scheduled",
+                org_id=getattr(target, "org_id", "default"),
+            )
+            logger.info(
+                "deferred runner task",
+                extra={"runner": runner_name, "target_id": target.id},
+            )
 
         self._scheduler.add_job(
             _run_job,
@@ -122,6 +122,25 @@ class Scheduler:
             replace_existing=True,
         )
         logger.info("scheduled kev refresh job")
+
+    def setup_janitor(self, store: Any) -> None:
+        async def _enqueue_janitor():
+            from easm.tasks.janitor import execute_janitor
+
+            await execute_janitor.configure(
+                queueing_lock="janitor-cleanup",
+                priority=10,
+            ).defer_async(org_id="default")
+
+        self._scheduler.add_job(
+            _enqueue_janitor,
+            "cron",
+            id="janitor-cleanup",
+            minute="0",
+            hour="*/1",
+            replace_existing=True,
+        )
+        logger.info("scheduled janitor cleanup job (hourly)")
 
     def _parse_cron(self, schedule: str) -> dict[str, str]:
         parts = schedule.split()
