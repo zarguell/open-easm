@@ -91,11 +91,18 @@ async def main() -> None:
     alembic_cfg.set_main_option("sqlalchemy.url", async_dsn)
     from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor() as executor:
-        await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
+    try:
+        with ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
+    except Exception as e:
+        logger.exception("migration failed", error=str(e))
+        raise
 
     logger.info("clearing stale pivot jobs")
-    await pool.execute("UPDATE pivot_queue SET status='pending' WHERE status='running'")
+    try:
+        await pool.execute("UPDATE pivot_queue SET status='pending' WHERE status='running'")
+    except Exception as e:
+        logger.warning("could not clear stale pivot jobs (table may not exist yet)", error=str(e))
 
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
