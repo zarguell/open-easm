@@ -94,6 +94,9 @@ async def main() -> None:
     with ThreadPoolExecutor() as executor:
         await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
 
+    logger.info("clearing stale pivot jobs")
+    await pool.execute("UPDATE pivot_queue SET status='pending' WHERE status='running'")
+
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
 
@@ -198,12 +201,13 @@ async def health_check_and_restart():
             logger.warning("health check error", error=str(e))
 
     monitor_task = asyncio.create_task(monitor_background_tasks())
-    health_task = asyncio.create_task(health_check_and_restart())
 
     try:
         await server.serve()
     except Exception as e:
         logger.exception("server crashed", error=str(e))
+
+    health_task = asyncio.create_task(health_check_and_restart())
     finally:
         logger.info("shutting down services")
         monitor_task.cancel()
