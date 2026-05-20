@@ -161,6 +161,9 @@ async def execute_pivot(
                                 discovery_session_id=discovery_session_id,
                                 discovery_run_id=run_id,
                                 discovery_pivot_id=job_id,
+                                parent_entity_id=(
+                                    uuid.UUID(entity_id) if entity_id else None
+                                ),
                             )
 
                             if ec.entity_type == "ip":

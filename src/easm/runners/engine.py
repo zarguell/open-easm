@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import httpx
+import tldextract
 
 from easm.models import RunStatus
 from easm.runtime import get_runtime
@@ -130,6 +131,54 @@ async def exec_subprocess(
 
 
 # ---------------------------------------------------------------------------
+# Seed entity helpers
+# ---------------------------------------------------------------------------
+
+async def _ensure_seed_entities(
+    store: "Store",
+    target: Any,
+    org_id: str,
+    run_id: uuid.UUID,
+) -> dict[tuple[str, str], uuid.UUID]:
+    """Pre-create seed entities (configured domains/ASNs) for a target.
+
+    Returns a mapping of (entity_type, entity_value) -> entity_id for
+    all seed entities, so that discovered entities can reference them
+    as parents.
+    """
+    seed_map: dict[tuple[str, str], uuid.UUID] = {}
+
+    if not hasattr(target, "match_rules"):
+        return seed_map
+
+    # Ensure domain seeds exist
+    for domain in (target.match_rules.domains or []):
+        try:
+            eid, _ = await store.upsert_entity(
+                org_id, target.id, "domain", domain, {},
+                discovery_run_id=run_id,
+                parent_entity_id=None,  # seeds have no parent
+            )
+            seed_map[("domain", domain)] = eid
+        except Exception:
+            logger.debug("failed to create seed domain entity: %s", domain, exc_info=True)
+
+    # Ensure ASN seeds exist
+    for asn in (target.match_rules.asns or []):
+        try:
+            eid, _ = await store.upsert_entity(
+                org_id, target.id, "asn", asn, {},
+                discovery_run_id=run_id,
+                parent_entity_id=None,  # seeds have no parent
+            )
+            seed_map[("asn", asn)] = eid
+        except Exception:
+            logger.debug("failed to create seed ASN entity: %s", asn, exc_info=True)
+
+    return seed_map
+
+
+# ---------------------------------------------------------------------------
 # Full run lifecycle (mirrors BaseRunner.execute)
 # ---------------------------------------------------------------------------
 
@@ -160,6 +209,15 @@ async def execute_runner(
     run_id = await store.create_run(
         target.id, source_name, trigger_type, org_id=target.org_id,
     )
+
+    seed_map: dict[tuple[str, str], uuid.UUID] = {}
+    try:
+        seed_map = await _ensure_seed_entities(store, target, target.org_id, run_id)
+    except Exception:
+        logger.debug("seed entity pre-creation failed", exc_info=True)
+
+    target._seed_map = seed_map
+
     start = datetime.now(UTC)
     await store.mark_run_started(run_id, start)
 
@@ -249,8 +307,10 @@ async def _ingest_entities(
     target: Any | None = None,
     pool: Any | None = None,
     raw_event_id: uuid.UUID | None = None,
+    seed_map: dict[tuple[str, str], uuid.UUID] | None = None,
 ) -> None:
     ingest_pool = pool or getattr(store, "pool", None)
+    _effective_seed_map = seed_map or (getattr(target, "_seed_map", None) if target else None)
     try:
         entities, relationships = output_schema(raw)
     except Exception:
@@ -262,13 +322,60 @@ async def _ingest_entities(
         discovery_session_id = run_data.get("discovery_session_id") if run_data else None
     except Exception:
         logger.debug("failed to load discovery session for run", exc_info=True)
+
+    def _resolve_parent(ec_type: str, ec_value: str, ec_attrs: dict) -> uuid.UUID | None:
+        if not _effective_seed_map:
+            return None
+
+        if ec_type == "domain":
+            if ("domain", ec_value) in _effective_seed_map:
+                return None
+            return None
+
+        if ec_type == "asn":
+            return None
+
+        if ec_type == "hostname":
+            ext = tldextract.extract(ec_value)
+            registered_domain = f"{ext.domain}.{ext.suffix}"
+            parent_id = _effective_seed_map.get(("domain", registered_domain))
+            if parent_id:
+                return parent_id
+            for (etype, eval_), eid in _effective_seed_map.items():
+                if etype == "domain" and ec_value.endswith("." + eval_):
+                    return eid
+            return None
+
+        if ec_type == "certificate":
+            san = ec_attrs.get("san_dns_names", [])
+            cn = ec_attrs.get("common_name", "")
+            candidates: list[str] = []
+            if cn:
+                candidates.append(cn)
+            if isinstance(san, list):
+                candidates.extend(san)
+            for d in candidates:
+                ext = tldextract.extract(d)
+                rd = f"{ext.domain}.{ext.suffix}"
+                parent_id = _effective_seed_map.get(("domain", rd))
+                if parent_id:
+                    return parent_id
+                for (etype, eval_), eid in _effective_seed_map.items():
+                    if etype == "domain" and d.endswith("." + eval_):
+                        return eid
+            return None
+
+        return None
+
     for ec in entities:
         try:
+            _parent_id = _resolve_parent(ec.entity_type, ec.value, ec.attributes)
             entity_id, is_new = await store.upsert_entity(
                 org_id, target_id, ec.entity_type, ec.value,
                 ec.attributes, raw_event_id=raw_event_id,
                 discovery_session_id=discovery_session_id,
                 discovery_run_id=run_id,
+                parent_entity_id=_parent_id,
             )
             try:
                 source = ec.attributes.get("source") or "unknown"
