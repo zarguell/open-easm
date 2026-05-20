@@ -219,22 +219,40 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
 
     inserted = 0
     deduped = 0
+    errors = 0
 
     for domain in target.match_rules.domains:
         try:
             url = f"{base_url}?domain={domain}&include_subdomains=true&expand=dns_names"
             after = None
+            rate_limit_retries = 0
+            max_rate_limit_retries = 3
             while True:
                 query_url = url
                 if after:
                     query_url = f"{url}&after={after}"
                 resp = await http_client.get(query_url, headers=headers)
                 if resp.status_code == 429:
-                    log(f"certspotter rate limited for {domain}, backing off")
-                    await asyncio.sleep(5)
+                    rate_limit_retries += 1
+                    if rate_limit_retries > max_rate_limit_retries:
+                        log(f"certspotter rate limit exceeded for {domain} after {max_rate_limit_retries} retries, skipping")
+                        errors += 1
+                        break
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            backoff = float(retry_after)
+                        except ValueError:
+                            backoff = 10 * (2 ** rate_limit_retries)
+                    else:
+                        backoff = 10 * (2 ** rate_limit_retries)
+                    log(f"certspotter rate limited for {domain}, backing off {backoff}s (attempt {rate_limit_retries}/{max_rate_limit_retries})")
+                    await asyncio.sleep(backoff)
                     continue
+                rate_limit_retries = 0
                 if resp.status_code != 200:
                     log(f"certspotter error: {resp.status_code} for {domain}")
+                    errors += 1
                     break
                 issuances = resp.json()
                 if not issuances:
@@ -251,18 +269,28 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
                         "serial_number": issuance.get("cert_sha256", ""),
                         "fingerprint": issuance.get("tbs_sha256", ""),
                     }
-                    ok = await store.insert_raw_event(
+                    raw_event_id = await store.insert_raw_event(
                         target.org_id, target.id, "certspotter", raw, run_id
                     )
-                    if ok:
+                    if raw_event_id:
                         inserted += 1
+                        from easm.runners.engine import _ingest_entities
+                        from easm.runners.schemas import OUTPUT_SCHEMAS
+                        schema_fn = OUTPUT_SCHEMAS.get("certspotter")
+                        if schema_fn:
+                            await _ingest_entities(
+                                store, schema_fn, raw, run_id,
+                                target.org_id, target.id, target=target,
+                                pool=getattr(store, "pool", None),
+                                raw_event_id=raw_event_id,
+                            )
                     else:
                         deduped += 1
                 after = issuances[-1].get("id")
         except Exception as e:
             log(f"certspotter error for {domain}: {e}")
 
-    return inserted, deduped, 0
+    return inserted, deduped, errors
 
 
 async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client):
