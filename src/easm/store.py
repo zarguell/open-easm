@@ -374,6 +374,7 @@ class Store:
         discovery_session_id: uuid.UUID | None = None,
         discovery_run_id: uuid.UUID | None = None,
         discovery_pivot_id: uuid.UUID | None = None,
+        parent_entity_id: uuid.UUID | None = None,
     ) -> tuple[uuid.UUID, bool]:
         normalized_value = normalize_entity_value(entity_type, entity_value)
         new_attributes.setdefault("triage_state", "discovered")
@@ -383,16 +384,19 @@ class Store:
             """
             INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
                                   first_seen_at, last_seen_at, is_first_discovery,
-                                  discovery_session_id, discovery_run_id, discovery_pivot_id)
-            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
+                                  discovery_session_id, discovery_run_id, discovery_pivot_id,
+                                  parent_entity_id)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8, $9)
             ON CONFLICT (org_id, target_id, entity_type, entity_value) DO UPDATE
             SET last_seen_at = NOW(),
-                is_first_discovery = FALSE
+                is_first_discovery = FALSE,
+                parent_entity_id = COALESCE(entities.parent_entity_id, EXCLUDED.parent_entity_id)
             RETURNING id, (xmax = 0) AS is_insert
             """,
             org_id, target_id, entity_type, normalized_value,
             json.dumps(new_attributes),
             discovery_session_id, discovery_run_id, discovery_pivot_id,
+            parent_entity_id,
         )
 
         entity_id = result["id"]
@@ -868,19 +872,20 @@ class Store:
         entity_id: uuid.UUID,
         org_id: str,
     ) -> dict[str, Any] | None:
-        """Trace the discovery lineage of an entity back to its seed ancestors.
+        """Trace the discovery lineage of an entity via the parent_entity_id chain.
 
-        Uses an iterative single-path walk instead of a recursive CTE to avoid
-        tree explosion on shared entities (e.g. CDN IPs with 100+ hostnames).
+        Each entity points to its immediate parent (the entity that led to its
+        discovery). Walking this chain produces an exact, non-heuristic lineage
+        from any asset back to its configured seed domain/ASN.
 
         Returns ``None`` if the entity does not exist in the given org.
         """
-        # Look up the target entity (including target_id for scoping)
+        # Fetch the target entity
         target = await self.pool.fetchrow(
             """
             SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
-                   e.target_id, e.discovery_run_id,
-                   r.source AS run_source, r.trigger_type AS run_trigger_type
+                   e.parent_entity_id, e.discovery_run_id,
+                   r.source AS run_source
             FROM entities e
             LEFT JOIN runs r ON r.id = e.discovery_run_id
             WHERE e.id = $1 AND e.org_id = $2
@@ -895,109 +900,69 @@ class Store:
             "entity_type": target["entity_type"],
             "entity_value": target["entity_value"],
             "discovered_by": target["run_source"],
-            "first_seen_at": target["first_seen_at"].isoformat() if target["first_seen_at"] else None,
+            "first_seen_at": (
+                target["first_seen_at"].isoformat()
+                if target["first_seen_at"] else None
+            ),
         }
 
-        target_id = target["target_id"]
         ancestors: list[dict[str, Any]] = []
-        visited: set[uuid.UUID] = {target["id"]}
-        current_id = target["id"]
+        child_id: uuid.UUID | None = target["id"]
+        current_parent_id = target["parent_entity_id"]
+        depth = 0
         max_depth = 20
 
-        for _ in range(max_depth):
-            row = await self.pool.fetchrow(
+        while current_parent_id is not None and depth < max_depth:
+            # Fetch parent entity + relationship type to child
+            parent = await self.pool.fetchrow(
                 """
-                SELECT
-                    src.id, src.entity_type, src.entity_value, src.first_seen_at,
-                    src.discovery_run_id,
-                    rn.source AS run_source, rn.trigger_type AS run_trigger_type,
-                    er.relationship_type, er.runner AS relationship_runner
-                FROM entity_relationships er
-                JOIN entities src ON src.id = er.source_entity_id
-                LEFT JOIN runs rn ON rn.id = src.discovery_run_id
-                WHERE er.target_entity_id = $1
-                  AND src.org_id = $2
-                  AND src.target_id = $3
-                  AND src.id != ALL($4::uuid[])
-                ORDER BY
-                    CASE WHEN rn.trigger_type = 'pivot' THEN 1 ELSE 0 END ASC,
-                    CASE WHEN src.entity_type = 'domain' THEN 0 ELSE 1 END ASC,
-                    src.first_seen_at ASC
-                LIMIT 1
+                SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                       e.parent_entity_id, e.discovery_run_id,
+                       r.source AS run_source,
+                       rel.relationship_type,
+                       rel.runner AS relationship_runner
+                FROM entities e
+                LEFT JOIN runs r ON r.id = e.discovery_run_id
+                LEFT JOIN LATERAL (
+                    SELECT relationship_type, runner
+                    FROM entity_relationships
+                    WHERE (source_entity_id = e.id AND target_entity_id = $2)
+                       OR (target_entity_id = e.id AND source_entity_id = $2)
+                    LIMIT 1
+                ) rel ON TRUE
+                WHERE e.id = $1
                 """,
-                current_id,
-                org_id,
-                target_id,
-                list(visited),
+                current_parent_id,
+                child_id,
             )
-            if row is None:
+            if parent is None:
                 break
 
-            visited.add(row["id"])
+            depth += 1
             ancestors.append({
                 "entity": {
-                    "id": str(row["id"]),
-                    "entity_type": row["entity_type"],
-                    "entity_value": row["entity_value"],
-                    "discovered_by": row["run_source"],
-                    "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
+                    "id": str(parent["id"]),
+                    "entity_type": parent["entity_type"],
+                    "entity_value": parent["entity_value"],
+                    "discovered_by": parent["run_source"],
+                    "first_seen_at": (
+                        parent["first_seen_at"].isoformat()
+                        if parent["first_seen_at"] else None
+                    ),
                 },
-                "connects_to_entity_id": str(current_id),
+                "connects_to_entity_id": str(child_id),
                 "relationship": {
-                    "type": row["relationship_type"],
-                    "runner": row["relationship_runner"],
+                    "type": (
+                        parent["relationship_type"]
+                        if parent["relationship_type"] else "discovered_by"
+                    ),
+                    "runner": parent["relationship_runner"],
                 },
-                "depth": len(ancestors) + 1,
+                "depth": depth,
             })
 
-            # If this ancestor is a seed (discovered by runner, not pivot), stop
-            if row["run_trigger_type"] and row["run_trigger_type"] != "pivot":
-                break
-
-            current_id = row["id"]
-
-        # If the walk dead-ended at a runner-discovered entity that isn't a
-        # top-level seed (domain / ASN), try to find the configured seed entity
-        # for this target_id.  Runners (subfinder, crtsh, …) don't create
-        # relationship edges from the seed domain to the entities they discover,
-        # so we bridge the gap here.
-        if ancestors:
-            last = ancestors[-1]
-            last_type = last["entity"]["entity_type"]
-            if last_type not in ("domain", "asn"):
-                seed = await self.pool.fetchrow(
-                    """
-                    SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
-                           r.source AS run_source
-                    FROM entities e
-                    LEFT JOIN runs r ON r.id = e.discovery_run_id
-                    WHERE e.target_id = $1
-                      AND e.org_id = $2
-                      AND e.entity_type = 'domain'
-                      AND e.id != ALL($3::uuid[])
-                    ORDER BY e.first_seen_at ASC
-                    LIMIT 1
-                    """,
-                    target_id,
-                    org_id,
-                    list(visited),
-                )
-                if seed is not None:
-                    ancestors.append({
-                        "entity": {
-                            "id": str(seed["id"]),
-                            "entity_type": seed["entity_type"],
-                            "entity_value": seed["entity_value"],
-                            "discovered_by": seed["run_source"],
-                            "first_seen_at": seed["first_seen_at"].isoformat() if seed["first_seen_at"] else None,
-                        },
-                        "connects_to_entity_id": str(current_id),
-                        "relationship": {
-                            "type": "target_scope",
-                            "runner": None,
-                        },
-                        "depth": len(ancestors) + 1,
-                    })
+            child_id = parent["id"]
+            current_parent_id = parent["parent_entity_id"]
 
         return {"entity": entity_info, "ancestors": ancestors}
 
