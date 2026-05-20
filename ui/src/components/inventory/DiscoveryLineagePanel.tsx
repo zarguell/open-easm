@@ -135,7 +135,7 @@ export const DiscoveryLineagePanel: FC<DiscoveryLineagePanelProps> = ({ entityId
 
   return (
     <div className="space-y-0">
-      {chain.map((ancestor, i) => (
+      {chain.map((ancestor) => (
         <div key={ancestor.entity.id}>
           <EntityNode
             entityType={ancestor.entity.entity_type}
