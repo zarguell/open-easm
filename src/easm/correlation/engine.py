@@ -14,6 +14,34 @@ from easm.correlation.rule import (
 )
 
 
+def _compute_finding_confidence(matched_entities: list[dict]) -> tuple[float, str]:
+    """Compute aggregate confidence from matched entities.
+
+    Uses the average confidence score of all matched entities.
+    Falls back to (0.0, "unknown") if no entity has confidence data.
+    """
+    scores = []
+    for entity in matched_entities:
+        attrs = entity.get("attributes", {})
+        profile = attrs.get("asset_profile", {}) if isinstance(attrs, dict) else {}
+        conf = profile.get("confidence", {}) if isinstance(profile, dict) else {}
+        score = conf.get("score")
+        if score is not None:
+            scores.append(float(score))
+
+    if not scores:
+        return (0.0, "unknown")
+
+    avg = sum(scores) / len(scores)
+    if avg >= 80:
+        level = "high"
+    elif avg >= 50:
+        level = "medium"
+    else:
+        level = "low"
+    return (round(avg, 1), level)
+
+
 class CorrelationEngine:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
@@ -35,6 +63,7 @@ class CorrelationEngine:
                 headline = rule.headline.format(**placeholder_data)
             except KeyError:
                 headline = rule.headline
+            conf_score, conf_level = _compute_finding_confidence(entities)
             findings.append(
                 Finding(
                     org_id=org_id,
@@ -48,6 +77,8 @@ class CorrelationEngine:
                         "novelty_factor": novelty_factor,
                         "lifecycle_state": entity_lifecycle,
                     },
+                    confidence_score=conf_score,
+                    confidence_level=conf_level,
                 )
             )
         return findings

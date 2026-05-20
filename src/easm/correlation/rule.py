@@ -91,6 +91,8 @@ class Finding(BaseModel):
     description: str | None = None
     entity_ids: list[str] = Field(default_factory=list)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    confidence_score: float | None = None
+    confidence_level: str | None = None
     status: str = "open"
 
     @field_validator("risk")

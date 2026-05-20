@@ -50,6 +50,24 @@ def _dispatch_finding_notification(f: Any, finding_id: Any) -> None:
         )
         loop = asyncio.get_running_loop()
         loop.create_task(dispatcher.dispatch(payload))
+
+        # SSE stream publishing (non-critical)
+        try:
+            from easm.api.sse import get_finding_stream
+            stream = get_finding_stream()
+            if stream.subscriber_count > 0:
+                stream.publish({
+                    "finding_id": str(finding_id),
+                    "rule_id": f.rule_id,
+                    "headline": f.headline,
+                    "risk": f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+                    "target_id": f.target_id,
+                    "entity_ids": f.entity_ids,
+                    "evidence": f.evidence,
+                    "status": "open",
+                })
+        except Exception:
+            pass  # non-critical
     except Exception:
         logger.debug("notification dispatch error (non-fatal)", exc_info=True)
 

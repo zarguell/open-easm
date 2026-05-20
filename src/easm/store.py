@@ -1096,8 +1096,9 @@ class Store:
         row = await self.pool.fetchrow(
             """
             INSERT INTO findings (org_id, target_id, rule_id, risk, headline, description,
-                                  entity_ids, evidence, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9)
+                                  entity_ids, evidence, status,
+                                  confidence_score, confidence_level)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9, $10, $11)
             RETURNING id
             """,
             finding.org_id,
@@ -1109,6 +1110,8 @@ class Store:
             [uuid.UUID(eid) for eid in finding.entity_ids],
             json.dumps(finding.evidence),
             finding.status,
+            finding.confidence_score,
+            finding.confidence_level,
         )
         assert row is not None
         return cast(uuid.UUID, row["id"])
@@ -1120,6 +1123,7 @@ class Store:
         status: str | None = None,
         rule_id: str | None = None,
         q: str | None = None,
+        confidence_min: float | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -1143,6 +1147,10 @@ class Store:
             idx += 1
             conditions.append(f"rule_id = ${idx}")
             params.append(rule_id)
+        if confidence_min is not None:
+            idx += 1
+            conditions.append(f"confidence_score >= ${idx}")
+            params.append(confidence_min)
         if q:
             idx += 1
             conditions.append(f"(headline ILIKE ${idx} OR rule_id ILIKE ${idx})")
@@ -1153,7 +1161,9 @@ class Store:
         idx += 1
         query = f"""
             SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                   entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+                   entity_ids, evidence, status,
+                   confidence_score, confidence_level,
+                   first_seen_at, last_seen_at, created_at
             FROM findings
             {where}
             ORDER BY risk DESC, created_at DESC
@@ -1166,7 +1176,9 @@ class Store:
     async def get_finding(self, finding_id: uuid.UUID) -> dict[str, Any] | None:
         row = await self.pool.fetchrow(
             """SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                      entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+                      entity_ids, evidence, status,
+                      confidence_score, confidence_level,
+                      first_seen_at, last_seen_at, created_at
                FROM findings WHERE id = $1""",
             finding_id,
         )
@@ -1318,6 +1330,8 @@ def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
         "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
         "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
         "status": row["status"],
+        "confidence_score": row.get("confidence_score"),
+        "confidence_level": row.get("confidence_level"),
         "first_seen_at": _fmt(row["first_seen_at"]),
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
