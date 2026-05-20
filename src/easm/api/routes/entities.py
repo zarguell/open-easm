@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from easm.api.deps import get_store
@@ -196,3 +198,17 @@ async def get_entity_relationships(entity_id: str, store: Store = Depends(get_st
             for r in rows
         ]
     }
+
+
+@router.get("/entities/{entity_id}/lineage")
+async def get_entity_lineage(
+    entity_id: UUID,
+    store: Store = Depends(get_store),
+):
+    lineage = await store.get_entity_lineage(entity_id, org_id="default")
+    if lineage is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Entity not found"},
+        )
+    return lineage

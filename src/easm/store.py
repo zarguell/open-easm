@@ -863,6 +863,107 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    async def get_entity_lineage(
+        self,
+        entity_id: uuid.UUID,
+        org_id: str,
+    ) -> dict[str, Any] | None:
+        """Trace the discovery lineage of an entity back to its seed ancestors.
+
+        Returns ``None`` if the entity does not exist in the given org.
+        """
+        # Verify the target entity exists
+        target_row = await self.pool.fetchrow(
+            "SELECT id FROM entities WHERE id = $1 AND org_id = $2",
+            entity_id,
+            org_id,
+        )
+        if target_row is None:
+            return None
+
+        rows = await self.pool.fetch(
+            """
+            WITH RECURSIVE lineage AS (
+                SELECT
+                    e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                    e.discovery_run_id,
+                    r.source AS run_source,
+                    r.trigger_type AS run_trigger_type,
+                    NULL::uuid AS connects_to_entity_id,
+                    NULL::uuid AS relationship_id,
+                    NULL::text AS relationship_type,
+                    NULL::text AS relationship_runner,
+                    0 AS depth,
+                    ARRAY[e.id] AS visited
+                FROM entities e
+                LEFT JOIN runs r ON r.id = e.discovery_run_id
+                WHERE e.id = $1 AND e.org_id = $2
+
+                UNION ALL
+
+                SELECT
+                    src.id, src.entity_type, src.entity_value, src.first_seen_at,
+                    src.discovery_run_id,
+                    rn.source AS run_source,
+                    rn.trigger_type AS run_trigger_type,
+                    l.id AS connects_to_entity_id,
+                    er.id AS relationship_id,
+                    er.relationship_type,
+                    er.runner AS relationship_runner,
+                    l.depth + 1,
+                    l.visited || src.id
+                FROM lineage l
+                JOIN entity_relationships er ON er.target_entity_id = l.id
+                JOIN entities src ON src.id = er.source_entity_id
+                LEFT JOIN runs rn ON rn.id = src.discovery_run_id
+                WHERE src.id != ALL(l.visited)
+                  AND l.depth < 15
+            )
+            SELECT
+                id, entity_type, entity_value, first_seen_at,
+                discovery_run_id, run_source, run_trigger_type,
+                connects_to_entity_id, relationship_id, relationship_type,
+                relationship_runner, depth
+            FROM lineage
+            ORDER BY depth ASC
+            """,
+            entity_id,
+            org_id,
+        )
+
+        if not rows:
+            return None
+
+        # depth 0 is the target entity itself
+        target = rows[0]
+        entity_info: dict[str, Any] = {
+            "id": str(target["id"]),
+            "entity_type": target["entity_type"],
+            "entity_value": target["entity_value"],
+            "discovered_by": target["run_source"],
+            "first_seen_at": target["first_seen_at"].isoformat() if target["first_seen_at"] else None,
+        }
+
+        ancestors: list[dict[str, Any]] = []
+        for row in rows[1:]:  # skip depth-0 (target entity)
+            ancestors.append({
+                "entity": {
+                    "id": str(row["id"]),
+                    "entity_type": row["entity_type"],
+                    "entity_value": row["entity_value"],
+                    "discovered_by": row["run_source"],
+                    "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
+                },
+                "connects_to_entity_id": str(row["connects_to_entity_id"]) if row["connects_to_entity_id"] else None,
+                "relationship": {
+                    "type": row["relationship_type"],
+                    "runner": row["relationship_runner"],
+                },
+                "depth": row["depth"],
+            })
+
+        return {"entity": entity_info, "ancestors": ancestors}
+
     # ── Pivot methods ─────────────────────────────────────────────────
     # (removed — pivots now use Procrastinate tasks)
 
