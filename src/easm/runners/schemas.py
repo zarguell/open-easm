@@ -79,7 +79,7 @@ def dnstwist(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
     rels: list[RelationshipCandidate] = []
     if original:
         rels.append(RelationshipCandidate(
-            "domain", n, "domain", normalize_entity_value("domain", original), "lookalike_of"))
+            "domain", normalize_entity_value("domain", original), "domain", n, "discovered_lookalike"))
     return entities, rels
 
 
@@ -108,7 +108,7 @@ def crtsh(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]
     for name in all_names:
         nn = normalize_entity_value("domain", name)
         entities.append(EntityCandidate("domain", nn, {"source": "crtsh"}))
-        rels.append(RelationshipCandidate("certificate", cert_val, "domain", nn, "issued_for"))
+        rels.append(RelationshipCandidate("domain", nn, "certificate", cert_val, "cert_discovered"))
         rels.append(RelationshipCandidate(
             "domain", nn, "certificate", cert_val, "reverse_of", "correlation"))
     return entities, rels
@@ -228,7 +228,7 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
     for name in all_names:
         nn = normalize_entity_value("domain", name)
         entities.append(EntityCandidate("domain", nn, {"source": "certstream"}))
-        rels.append(RelationshipCandidate("certificate", cert_val, "domain", nn, "issued_for"))
+        rels.append(RelationshipCandidate("domain", nn, "certificate", cert_val, "cert_discovered"))
         rels.append(RelationshipCandidate(
             "domain", nn, "certificate", cert_val, "reverse_of", "correlation"))
     return entities, rels
