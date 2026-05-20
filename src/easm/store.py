@@ -905,8 +905,6 @@ class Store:
         max_depth = 20
 
         for _ in range(max_depth):
-            # Find the single best ancestor: relationship pointing TO current
-            # entity from an entity in the same target_id scope.
             row = await self.pool.fetchrow(
                 """
                 SELECT
@@ -923,6 +921,7 @@ class Store:
                   AND src.id != ALL($4::uuid[])
                 ORDER BY
                     CASE WHEN rn.trigger_type = 'pivot' THEN 1 ELSE 0 END ASC,
+                    CASE WHEN src.entity_type = 'domain' THEN 0 ELSE 1 END ASC,
                     src.first_seen_at ASC
                 LIMIT 1
                 """,
@@ -974,7 +973,7 @@ class Store:
                     LEFT JOIN runs r ON r.id = e.discovery_run_id
                     WHERE e.target_id = $1
                       AND e.org_id = $2
-                      AND e.entity_type IN ('domain', 'asn')
+                      AND e.entity_type = 'domain'
                       AND e.id != ALL($3::uuid[])
                     ORDER BY e.first_seen_at ASC
                     LIMIT 1
