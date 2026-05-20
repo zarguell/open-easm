@@ -21,13 +21,27 @@ async def execute_janitor(
     from easm.worker_context import get_pool
 
     pool = get_pool()
-    deleted_runs = await pool.fetchval(
+
+    run_ids = await pool.fetch(
         """
-        DELETE FROM runs
+        SELECT id FROM runs
         WHERE status = 'completed'
           AND finished_at < NOW() - ($1 * interval '1 hour')
         """,
         delete_completed_older_than_hours,
+    )
+    if not run_ids:
+        logger.info("janitor cleanup complete", extra={"deleted_runs": 0})
+        return {"deleted_runs": 0}
+
+    ids = [r["id"] for r in run_ids]
+    await pool.execute(
+        "UPDATE entities SET discovery_run_id = NULL WHERE discovery_run_id = ANY($1)",
+        ids,
+    )
+    deleted_runs = await pool.fetchval(
+        "DELETE FROM runs WHERE id = ANY($1) RETURNING id",
+        ids,
     ) or 0
 
     logger.info(
