@@ -87,3 +87,36 @@ export function useEntityRelationships(entityId: string | null) {
     enabled: entityId !== null,
   })
 }
+
+export interface LineageEntity {
+  id: string
+  entity_type: string
+  entity_value: string
+  discovered_by: string | null
+  first_seen_at: string | null
+}
+
+export interface LineageRelationship {
+  type: string
+  runner: string | null
+}
+
+export interface LineageAncestor {
+  entity: LineageEntity
+  connects_to_entity_id: string
+  relationship: LineageRelationship
+  depth: number
+}
+
+export interface LineageResponse {
+  entity: LineageEntity
+  ancestors: LineageAncestor[]
+}
+
+export function useEntityLineage(entityId: string | null) {
+  return useQuery({
+    queryKey: ['entity-lineage', entityId],
+    queryFn: () => api.get(`entities/${entityId}/lineage`).json<LineageResponse>(),
+    enabled: entityId !== null,
+  })
+}
