@@ -870,72 +870,26 @@ class Store:
     ) -> dict[str, Any] | None:
         """Trace the discovery lineage of an entity back to its seed ancestors.
 
+        Uses an iterative single-path walk instead of a recursive CTE to avoid
+        tree explosion on shared entities (e.g. CDN IPs with 100+ hostnames).
+
         Returns ``None`` if the entity does not exist in the given org.
         """
-        # Verify the target entity exists
-        target_row = await self.pool.fetchrow(
-            "SELECT id FROM entities WHERE id = $1 AND org_id = $2",
-            entity_id,
-            org_id,
-        )
-        if target_row is None:
-            return None
-
-        rows = await self.pool.fetch(
+        # Look up the target entity (including target_id for scoping)
+        target = await self.pool.fetchrow(
             """
-            WITH RECURSIVE lineage AS (
-                SELECT
-                    e.id, e.entity_type, e.entity_value, e.first_seen_at,
-                    e.discovery_run_id,
-                    r.source AS run_source,
-                    r.trigger_type AS run_trigger_type,
-                    NULL::uuid AS connects_to_entity_id,
-                    NULL::uuid AS relationship_id,
-                    NULL::text AS relationship_type,
-                    NULL::text AS relationship_runner,
-                    0 AS depth,
-                    ARRAY[e.id] AS visited
-                FROM entities e
-                LEFT JOIN runs r ON r.id = e.discovery_run_id
-                WHERE e.id = $1 AND e.org_id = $2
-
-                UNION ALL
-
-                SELECT
-                    src.id, src.entity_type, src.entity_value, src.first_seen_at,
-                    src.discovery_run_id,
-                    rn.source AS run_source,
-                    rn.trigger_type AS run_trigger_type,
-                    l.id AS connects_to_entity_id,
-                    er.id AS relationship_id,
-                    er.relationship_type,
-                    er.runner AS relationship_runner,
-                    l.depth + 1,
-                    l.visited || src.id
-                FROM lineage l
-                JOIN entity_relationships er ON er.target_entity_id = l.id
-                JOIN entities src ON src.id = er.source_entity_id
-                LEFT JOIN runs rn ON rn.id = src.discovery_run_id
-                WHERE src.id != ALL(l.visited)
-                  AND l.depth < 15
-            )
-            SELECT
-                id, entity_type, entity_value, first_seen_at,
-                discovery_run_id, run_source, run_trigger_type,
-                connects_to_entity_id, relationship_id, relationship_type,
-                relationship_runner, depth
-            FROM lineage
-            ORDER BY depth ASC
+            SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                   e.target_id, e.discovery_run_id,
+                   r.source AS run_source, r.trigger_type AS run_trigger_type
+            FROM entities e
+            LEFT JOIN runs r ON r.id = e.discovery_run_id
+            WHERE e.id = $1 AND e.org_id = $2
             """,
-            entity_id,
-            org_id,
+            entity_id, org_id,
         )
-
-        if not rows:
+        if target is None:
             return None
 
-        # depth 0 is the target entity itself
-        target = rows[0]
         entity_info: dict[str, Any] = {
             "id": str(target["id"]),
             "entity_type": target["entity_type"],
@@ -944,8 +898,43 @@ class Store:
             "first_seen_at": target["first_seen_at"].isoformat() if target["first_seen_at"] else None,
         }
 
+        target_id = target["target_id"]
         ancestors: list[dict[str, Any]] = []
-        for row in rows[1:]:  # skip depth-0 (target entity)
+        visited: set[uuid.UUID] = {target["id"]}
+        current_id = target["id"]
+        max_depth = 20
+
+        for _ in range(max_depth):
+            # Find the single best ancestor: relationship pointing TO current
+            # entity from an entity in the same target_id scope.
+            row = await self.pool.fetchrow(
+                """
+                SELECT
+                    src.id, src.entity_type, src.entity_value, src.first_seen_at,
+                    src.discovery_run_id,
+                    rn.source AS run_source, rn.trigger_type AS run_trigger_type,
+                    er.relationship_type, er.runner AS relationship_runner
+                FROM entity_relationships er
+                JOIN entities src ON src.id = er.source_entity_id
+                LEFT JOIN runs rn ON rn.id = src.discovery_run_id
+                WHERE er.target_entity_id = $1
+                  AND src.org_id = $2
+                  AND src.target_id = $3
+                  AND src.id != ALL($4::uuid[])
+                ORDER BY
+                    CASE WHEN rn.trigger_type = 'pivot' THEN 1 ELSE 0 END ASC,
+                    src.first_seen_at ASC
+                LIMIT 1
+                """,
+                current_id,
+                org_id,
+                target_id,
+                list(visited),
+            )
+            if row is None:
+                break
+
+            visited.add(row["id"])
             ancestors.append({
                 "entity": {
                     "id": str(row["id"]),
@@ -954,13 +943,19 @@ class Store:
                     "discovered_by": row["run_source"],
                     "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
                 },
-                "connects_to_entity_id": str(row["connects_to_entity_id"]) if row["connects_to_entity_id"] else None,
+                "connects_to_entity_id": str(current_id),
                 "relationship": {
                     "type": row["relationship_type"],
                     "runner": row["relationship_runner"],
                 },
-                "depth": row["depth"],
+                "depth": len(ancestors) + 1,
             })
+
+            # If this ancestor is a seed (discovered by runner, not pivot), stop
+            if row["run_trigger_type"] and row["run_trigger_type"] != "pivot":
+                break
+
+            current_id = row["id"]
 
         return {"entity": entity_info, "ancestors": ancestors}
 

@@ -291,9 +291,18 @@ def domain_extract(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipC
     domain = raw.get("domain", "").strip()
     if not domain:
         return [], []
-    return [EntityCandidate("domain", normalize_entity_value("domain", domain), {
-        "source": "domain_extract", "source_hostname": raw.get("source_hostname", ""),
-    })], []
+    nd = normalize_entity_value("domain", domain)
+    nh = raw.get("source_hostname", "").strip()
+    rels: list[RelationshipCandidate] = []
+    if nh:
+        rels.append(RelationshipCandidate(
+            "hostname", normalize_entity_value("hostname", nh),
+            "domain", nd,
+            "registered_domain_of", "pivot",
+        ))
+    return [EntityCandidate("domain", nd, {
+        "source": "domain_extract", "source_hostname": nh,
+    })], rels
 
 
 def geoip(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -463,14 +472,17 @@ def passive_dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCand
     nd = normalize_entity_value("domain", domain)
     a_records = pdns.get("a_records", [])
     entities = [EntityCandidate("domain", nd, {"source": "securitytrails", "dns_history": a_records})]
+    rels: list[RelationshipCandidate] = []
     for rec in a_records:
         ip = rec.get("ip", "").strip()
         if ip:
-            entities.append(EntityCandidate("ip", normalize_entity_value("ip", ip), {
+            ni = normalize_entity_value("ip", ip)
+            entities.append(EntityCandidate("ip", ni, {
                 "source": "securitytrails", "first_seen": rec.get("first_seen", ""),
                 "last_seen": rec.get("last_seen", ""), "resolved_for": domain,
             }))
-    return entities, []
+            rels.append(RelationshipCandidate("domain", nd, "ip", ni, "resolves_to", "pivot"))
+    return entities, rels
 
 
 def cloud_bucket(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
