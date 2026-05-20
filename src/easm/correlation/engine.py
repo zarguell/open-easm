@@ -70,6 +70,14 @@ class CorrelationEngine:
                 field_sql = self._field_to_sql(cond.field)
                 conditions.append(f"{field_sql} = ${idx}")
                 params.append(cond.value)
+            elif cond.method == CollectMethod.NOT_REGEX:
+                field_sql = self._field_to_sql(cond.field)
+                sub_conditions = []
+                for pattern in cond.patterns or []:
+                    idx += 1
+                    sub_conditions.append(f"{field_sql} !~ ${idx}::text")
+                    params.append(pattern)
+                conditions.append(f"({' AND '.join(sub_conditions)})")
             elif cond.method == CollectMethod.REGEX:
                 field_sql = self._field_to_sql(cond.field)
                 sub_conditions = []

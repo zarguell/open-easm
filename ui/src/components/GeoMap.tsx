@@ -37,7 +37,7 @@ export function GeoMap() {
     async function fetchIps() {
       try {
         const resp = await ky
-          .get("/api/entities", { searchParams: { entity_type: "ip", limit: "500" } })
+          .get("/api/entities", { searchParams: { entity_type: "ip", limit: "5000" } })
           .json<{ entities: IpEntity[] }>();
         setIps(resp.entities);
       } catch (e) {

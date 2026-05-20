@@ -9,6 +9,7 @@ import { RunsView } from "./components/runs/RunsView";
 import { TargetsView } from "./components/targets/TargetsView";
 import { ConfigEditorView } from "./components/config/ConfigEditorView";
 import { AlertsView } from "./components/alerts/AlertsView";
+import { FindingsView } from "./components/findings/FindingsView";
 import { GeoMap } from "./components/GeoMap";
 
 export function App() {
@@ -24,6 +25,7 @@ export function App() {
         <Route path="targets" element={<TargetsView />} />
         <Route path="config" element={<ConfigEditorView />} />
         <Route path="alerts" element={<AlertsView />} />
+        <Route path="findings" element={<FindingsView />} />
         <Route path="geo" element={<GeoMap />} />
       </Route>
     </Routes>

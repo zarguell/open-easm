@@ -36,13 +36,14 @@ async def list_findings(
     risk: str | None = Query(None),
     status: str | None = Query(None),
     rule_id: str | None = Query(None),
+    q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     store: Store = Depends(get_store),
 ):
     results = await store.list_findings(
         target_id=target_id, risk=risk, status=status,
-        rule_id=rule_id, limit=limit, offset=offset,
+        rule_id=rule_id, q=q, limit=limit, offset=offset,
     )
     return {"findings": results}
 

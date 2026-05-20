@@ -25,11 +25,13 @@ async def list_alert_rules(config=Depends(get_config)):
 
 @router.get("/feed", response_model=list[AlertFeedEntry])
 async def alert_feed(
+    risk: str | None = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     store: Store = Depends(get_store),
 ):
-    results = await store.list_findings(limit=limit, offset=offset)
+    results = await store.list_findings(risk=risk, status=status, limit=limit, offset=offset)
     return [
         AlertFeedEntry(
             id=r["id"], rule_name=r["rule_id"] or "unknown",

@@ -371,13 +371,23 @@ def _is_ca(cert) -> bool:
 async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client):
     from urllib.parse import parse_qs, urlparse
 
+    # Resolve latest CommonCrawl index dynamically
+    cc_idx = "2026-17"  # fallback if fetch fails
+    try:
+        resp = await http_client.get("https://index.commoncrawl.org/collinfo.json")
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and len(data) > 0:
+                cc_idx = data[0]["id"].replace("CC-MAIN-", "")
+    except Exception:
+        log("commoncrawl: failed to fetch latest index, using fallback")
+
     def _cc_iterate(t):
         urls: list[str] = []
         for domain in t.match_rules.domains:
-            for idx in ("2026-17",):
-                base = f"https://index.commoncrawl.org/CC-MAIN-{idx}-index"
-                urls.append(f"{base}?url=*.{domain}&output=json")
-                urls.append(f"{base}?url={domain}&output=json")
+            base = f"https://index.commoncrawl.org/CC-MAIN-{cc_idx}-index"
+            urls.append(f"{base}?url=*.{domain}&output=json")
+            urls.append(f"{base}?url={domain}&output=json")
         return urls
 
     def transform_fn(parsed, item):

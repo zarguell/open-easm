@@ -25,6 +25,30 @@ from easm.vuln_enrichment import cpe_vuln_enrich
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Enrichment API key resolution (configured at startup)
+# ---------------------------------------------------------------------------
+import os as _os
+
+_enrichment_keys: dict[str, str] = {}
+
+
+def configure_enrichment_keys(config) -> None:
+    """Load enrichment API keys from config. Called once at startup."""
+    keys = getattr(config, "enrichment", None)
+    _enrichment_keys["shodan"] = _resolve(keys, "shodan", "SHODAN_API_KEY")
+    _enrichment_keys["abuseipdb"] = _resolve(keys, "abuseipdb", "ABUSEIPDB_API_KEY")
+    _enrichment_keys["greynoise"] = _resolve(keys, "greynoise", "GREYNOISE_API_KEY")
+    _enrichment_keys["censys_id"] = _resolve(keys, "censys_id", "CENSYS_API_ID")
+    _enrichment_keys["censys_secret"] = _resolve(keys, "censys_secret", "CENSYS_API_SECRET")
+    _enrichment_keys["securitytrails"] = _resolve(keys, "securitytrails", "SECURITYTRAILS_API_KEY")
+
+
+def _resolve(keys_obj, attr: str, env_var: str) -> str:
+    """Config value > environment variable > empty string."""
+    config_val = getattr(keys_obj, attr, None) if keys_obj else None
+    return config_val or _os.environ.get(env_var, "")
+
+# ---------------------------------------------------------------------------
 # Handler functions
 # ---------------------------------------------------------------------------
 
@@ -441,7 +465,7 @@ async def subdomain_takeover(job: dict, pool) -> list[dict[str, Any]]:
 async def passive_dns(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                       limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
-    api_key = ""  # configured via env/API in production
+    api_key = _enrichment_keys.get("securitytrails", "")
     if not api_key:
         return [{"domain": domain, "message": "no securitytrails api key"}]
     sem = limiters.securitytrails if limiters else None
@@ -641,7 +665,7 @@ async def domain_rdap(job: dict, pool, *, http_client: httpx.AsyncClient | None 
 async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("shodan", "")
     sem = limiters.shodan if limiters else None
     if sem:
         await sem.acquire()
@@ -705,7 +729,7 @@ async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | Non
 async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("abuseipdb", "")
     if not api_key:
         return [{"ip": ip, "message": "no abuseipdb api key configured"}]
     sem = limiters.abuseipdb if limiters else None
@@ -745,7 +769,7 @@ async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | 
 async def greynoise_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("greynoise", "")
     headers = {"key": api_key} if api_key else {}
     sem = limiters.greynoise if limiters else None
     if sem:
@@ -814,7 +838,8 @@ async def urlscan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | No
 async def censys_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_id = api_secret = ""
+    api_id = _enrichment_keys.get("censys_id", "")
+    api_secret = _enrichment_keys.get("censys_secret", "")
     if not api_id or not api_secret:
         return [{"ip": ip, "message": "censys API credentials not configured"}]
     auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()

@@ -9,6 +9,10 @@ collect:
   - method: exact
     field: entity_type
     value: hostname
+  - method: regex
+    field: attributes.takeover_risk
+    patterns:
+      - "[Tt]rue"
 aggregation:
   field: entity_value
 analysis:

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class CollectMethod(str, enum.Enum):
     EXACT = "exact"
     REGEX = "regex"
+    NOT_REGEX = "not_regex"
 
 
 class AnalysisMethod(str, enum.Enum):

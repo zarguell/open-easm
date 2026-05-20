@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import PlainTextResponse
+from starlette.responses import StreamingResponse
 
 from easm.api.deps import get_store
-from easm.assets.export import assets_to_ndjson
+from easm.assets.export import asset_to_source_of_truth_record
 from easm.store import Store
 
 router = APIRouter(tags=["assets"])
@@ -18,11 +19,11 @@ async def list_asset_inventory(
     confidence_level: str | None = Query(None),
     risk_level: str | None = Query(None),
     feed_eligible: bool | None = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     store: Store = Depends(get_store),
 ):
-    assets = await store.list_asset_inventory(
+    result = await store.list_asset_inventory(
         target_id=target_id,
         confidence_level=confidence_level,
         risk_level=risk_level,
@@ -31,7 +32,7 @@ async def list_asset_inventory(
         offset=offset,
         org_id="default",
     )
-    return {"assets": assets}
+    return {"assets": result["entities"], "total_count": result["total_count"]}
 
 
 @router.get("/assets/changes")
@@ -57,14 +58,27 @@ async def export_assets_ndjson(
     target_id: str | None = Query(None),
     store: Store = Depends(get_store),
 ):
-    assets = await store.list_asset_inventory(
-        target_id=target_id,
-        feed_eligible=True,
-        limit=500,
-        offset=0,
-        org_id="default",
-    )
-    return PlainTextResponse(
-        assets_to_ndjson(assets),
+    async def generate():
+        offset = 0
+        batch_size = 1000
+        while True:
+            result = await store.list_asset_inventory(
+                target_id=target_id,
+                feed_eligible=True,
+                limit=batch_size,
+                offset=offset,
+                org_id="default",
+            )
+            entities = result["entities"]
+            if not entities:
+                break
+            for asset in entities:
+                yield json.dumps(asset_to_source_of_truth_record(asset), default=str) + "\n"
+            if len(entities) < batch_size:
+                break
+            offset += batch_size
+
+    return StreamingResponse(
+        generate(),
         media_type="application/x-ndjson",
     )

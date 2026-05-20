@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from easm.certificates import certificate_inventory_to_findings
 from easm.correlation.engine import CorrelationEngine
 from easm.correlation.loader import load_rules_from_dir
 from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY, PIVOT_SOURCE_NAMES
@@ -44,6 +45,30 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
                 logger.exception("failed to save finding", extra={"rule_id": f.rule_id})
     except Exception:
         logger.exception("correlation engine failed")
+
+    try:
+        cert_rows = await store.list_certificate_inventory(
+            target_id=target_id, org_id=org_id, limit=500
+        )
+        if cert_rows:
+            cert_findings = certificate_inventory_to_findings(
+                org_id=org_id, target_id=target_id, rows=cert_rows
+            )
+            for f in cert_findings:
+                try:
+                    await store.create_finding(f)
+                except Exception:
+                    logger.exception(
+                        "failed to save certificate finding",
+                        extra={"rule_id": f.rule_id},
+                    )
+            logger.info(
+                "Certificate analysis produced %d findings for target %s",
+                len(cert_findings),
+                target_id,
+            )
+    except Exception:
+        logger.exception("certificate findings generation failed")
 
 
 def _resolve_target_config(config: Any | None, target_id: str) -> Any | None:

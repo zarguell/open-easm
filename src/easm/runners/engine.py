@@ -257,6 +257,43 @@ async def execute_runner(
         logs=log_text,
     )
 
+    # Post-run: process raw events through output_schema for legacy adapters
+    # that don't inline entity ingestion.  For adapters already using the
+    # _EntityIngestStoreProxy this is a harmless no-op (upsert is idempotent).
+    if status == RunStatus.COMPLETED.value:
+        try:
+            from easm.runners import get_all_runners as _get_all_runners
+
+            _runner_def = _get_all_runners().get(source_name)
+            if _runner_def and _runner_def.output_schema:
+                _raw_events = await store.pool.fetch(
+                    "SELECT id, raw FROM raw_events WHERE run_id = $1",
+                    run_id,
+                )
+                if _raw_events:
+                    _total_entities = 0
+                    for _re in _raw_events:
+                        try:
+                            await _ingest_entities(
+                                store, _runner_def.output_schema,
+                                _re["raw"], run_id,
+                                target.org_id, target.id, target=target,
+                                pool=store.pool, raw_event_id=_re["id"],
+                            )
+                            _ents, _ = _runner_def.output_schema(_re["raw"])
+                            _total_entities += len(_ents)
+                        except Exception:
+                            logger.debug(
+                                "post-run entity ingest failed",
+                                exc_info=True,
+                            )
+                    logger.info(
+                        "%s: processed %d raw events into %d entities via output_schema",
+                        source_name, len(_raw_events), _total_entities,
+                    )
+        except Exception:
+            logger.debug("output_schema post-processing failed", exc_info=True)
+
     # Compute run counters ------------------------------------------------
     try:
         run_data = await store.get_run(run_id)

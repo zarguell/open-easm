@@ -108,11 +108,6 @@ targets:
         schedule: "0 */2 * * *"
         args:
           timeout_seconds: 60
-      discord_monitor:
-        enabled: false
-        schedule: "*/15 * * * *"
-        args:
-          timeout_seconds: 30
       github_scan:
         enabled: true
         schedule: "0 */4 * * *"
@@ -138,11 +133,6 @@ targets:
         schedule: "0 */2 * * *"
         args:
           timeout_seconds: 60
-      discord_monitor:
-        enabled: false
-        schedule: "*/5 * * * *"
-        discord_token: "${DISCORD_TOKEN}"
-        channels: []
       commoncrawl:
         enabled: true
         schedule: "0 4 * * 1"
@@ -256,3 +246,13 @@ targets:
           to: hostname
           via: reverse_dns
           cooldown_hours: 24
+
+# API keys for external enrichment services.
+# Set via config or environment variables (env var names shown in comments).
+enrichment:
+  shodan: "${SHODAN_API_KEY}"            # env: SHODAN_API_KEY
+  abuseipdb: "${ABUSEIPDB_API_KEY}"      # env: ABUSEIPDB_API_KEY
+  greynoise: "${GREYNOISE_API_KEY}"      # env: GREYNOISE_API_KEY
+  censys_id: "${CENSYS_API_ID}"          # env: CENSYS_API_ID
+  censys_secret: "${CENSYS_API_SECRET}"  # env: CENSYS_API_SECRET
+  securitytrails: "${SECURITYTRAILS_API_KEY}"  # env: SECURITYTRAILS_API_KEY

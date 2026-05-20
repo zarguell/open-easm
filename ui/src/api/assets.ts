@@ -51,6 +51,7 @@ export interface AssetChangesParams {
 
 export interface AssetInventoryResponse {
   assets: AssetInventoryItem[]
+  total_count: number
 }
 
 export interface AssetChangesResponse {

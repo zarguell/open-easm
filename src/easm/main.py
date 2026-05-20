@@ -14,6 +14,7 @@ from easm.api.app import create_app
 from easm.api.deps import set_config, set_scheduler, set_store
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
+from easm.pivot.handlers import configure_enrichment_keys
 from easm.db import close_pool, create_pool
 from easm.queue import app as procrastinate_app
 from easm.runtime import configure_runtime
@@ -55,6 +56,7 @@ async def main() -> None:
         sys.exit(1)
 
     configure_runtime(config.runtime)
+    configure_enrichment_keys(config)
     logger.info(
         "configured runtime",
         mode=config.runtime.mode,

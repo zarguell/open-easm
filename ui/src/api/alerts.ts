@@ -19,7 +19,17 @@ export interface AlertFeedEntry {
   acknowledged: boolean
 }
 
+export interface AlertFeedParams {
+  risk?: string
+  status?: string
+}
+
 export const getAlertRules = () => api.get('alerts/rules').json<AlertRule[]>()
-export const getAlertFeed = () => api.get('alerts/feed').json<AlertFeedEntry[]>()
+export const getAlertFeed = (params?: AlertFeedParams) => {
+  const searchParams: Record<string, string> = {}
+  if (params?.risk) searchParams.risk = params.risk
+  if (params?.status) searchParams.status = params.status
+  return api.get('alerts/feed', { searchParams }).json<AlertFeedEntry[]>()
+}
 export const acknowledgeFinding = (id: string) =>
   api.patch(`alerts/feed/${id}`).json<{ status: string }>()

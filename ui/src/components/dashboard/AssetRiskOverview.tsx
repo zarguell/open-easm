@@ -40,7 +40,7 @@ export const AssetRiskOverview: FC = () => {
   }
 
   const assets = data?.assets ?? []
-  const profiled = assets.length
+  const profiled = data?.total_count ?? assets.length
   const feedEligible = assets.filter((asset) => asset.feed_eligible).length
   const critical = assets.filter((asset) => asset.risk_level === 'critical').length
   const high = assets.filter((asset) => asset.risk_level === 'high').length
@@ -49,7 +49,7 @@ export const AssetRiskOverview: FC = () => {
     <Card className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold text-ink">Asset Risk Overview</h2>
-        <p className="mt-1 text-xs text-mute">Profiled inventory sampled from the latest 500 assets.</p>
+        <p className="mt-1 text-xs text-mute">Risk counts from the latest 500 assets; profiled total is exact.</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <OverviewMetric label="Profiled" value={profiled} />

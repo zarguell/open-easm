@@ -539,21 +539,17 @@ class Store:
         entity_id: uuid.UUID,
     ) -> list[dict[str, Any]]:
         try:
-            findings = await self.list_findings(target_id=target_id, limit=200)
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """SELECT * FROM findings
+                       WHERE target_id = $1 AND $2 = ANY(entity_ids)
+                       ORDER BY created_at DESC""",
+                    target_id, str(entity_id),
+                )
+            return [dict(r) for r in rows]
         except Exception:
             logger.debug("finding lookup skipped for asset profile", exc_info=True)
             return []
-
-        entity_id_text = str(entity_id)
-        matched: list[dict[str, Any]] = []
-        for finding in findings:
-            entity_ids = finding.get("entity_ids") or []
-            if entity_id_text not in [str(value) for value in entity_ids]:
-                continue
-            if "severity" not in finding and "risk" in finding:
-                finding = {**finding, "severity": finding.get("risk")}
-            matched.append(finding)
-        return matched
 
     async def upsert_relationship(
         self,
@@ -726,8 +722,8 @@ class Store:
         limit: int = 100,
         offset: int = 0,
         org_id: str = "default",
-    ) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 500))
+    ) -> dict[str, Any]:
+        limit = max(1, min(limit, 5000))
         offset = max(0, offset)
         conditions = ["org_id = $1", "attributes ? 'asset_profile'"]
         params: list[Any] = [org_id]
@@ -761,6 +757,7 @@ class Store:
         rows = await self.pool.fetch(
             f"""
             SELECT
+                COUNT(*) OVER() AS total_count,
                 id AS entity_id,
                 org_id,
                 target_id,
@@ -797,7 +794,9 @@ class Store:
             """,
             *params,
         )
-        return [_row_to_asset_inventory_dict(row) for row in rows]
+        total_count = rows[0]["total_count"] if rows else 0
+        entities = [_row_to_asset_inventory_dict(row) for row in rows]
+        return {"entities": entities, "total_count": total_count}
 
     async def get_triage_inbox(
         self,
@@ -1120,6 +1119,7 @@ class Store:
         risk: str | None = None,
         status: str | None = None,
         rule_id: str | None = None,
+        q: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -1143,6 +1143,10 @@ class Store:
             idx += 1
             conditions.append(f"rule_id = ${idx}")
             params.append(rule_id)
+        if q:
+            idx += 1
+            conditions.append(f"(headline ILIKE ${idx} OR rule_id ILIKE ${idx})")
+            params.append(f"%{q}%")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         idx += 1

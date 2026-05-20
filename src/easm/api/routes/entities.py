@@ -72,6 +72,7 @@ async def list_entities(
     first_seen_since: str | None = Query(None),
     last_seen_before: str | None = Query(None),
     new_since_run_id: str | None = Query(None),
+    q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
     cursor: str | None = Query(None),
     store: Store = Depends(get_store),
@@ -96,6 +97,12 @@ async def list_entities(
         idx += 1
         conditions.append(f"last_seen_at <= ${idx}")
         sql_params.append(last_seen_before)
+    if q:
+        idx += 1
+        conditions.append(
+            f"(entity_value ILIKE ${idx} OR entity_type ILIKE ${idx} OR attributes::text ILIKE ${idx})"
+        )
+        sql_params.append(f"%{q}%")
     if cursor:
         idx += 1
         conditions.append(f"id < ${idx}::uuid")
