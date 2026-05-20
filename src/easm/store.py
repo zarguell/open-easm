@@ -957,6 +957,49 @@ class Store:
 
             current_id = row["id"]
 
+        # If the walk dead-ended at a runner-discovered entity that isn't a
+        # top-level seed (domain / ASN), try to find the configured seed entity
+        # for this target_id.  Runners (subfinder, crtsh, …) don't create
+        # relationship edges from the seed domain to the entities they discover,
+        # so we bridge the gap here.
+        if ancestors:
+            last = ancestors[-1]
+            last_type = last["entity"]["entity_type"]
+            if last_type not in ("domain", "asn"):
+                seed = await self.pool.fetchrow(
+                    """
+                    SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                           r.source AS run_source
+                    FROM entities e
+                    LEFT JOIN runs r ON r.id = e.discovery_run_id
+                    WHERE e.target_id = $1
+                      AND e.org_id = $2
+                      AND e.entity_type IN ('domain', 'asn')
+                      AND e.id != ALL($3::uuid[])
+                    ORDER BY e.first_seen_at ASC
+                    LIMIT 1
+                    """,
+                    target_id,
+                    org_id,
+                    list(visited),
+                )
+                if seed is not None:
+                    ancestors.append({
+                        "entity": {
+                            "id": str(seed["id"]),
+                            "entity_type": seed["entity_type"],
+                            "entity_value": seed["entity_value"],
+                            "discovered_by": seed["run_source"],
+                            "first_seen_at": seed["first_seen_at"].isoformat() if seed["first_seen_at"] else None,
+                        },
+                        "connects_to_entity_id": str(current_id),
+                        "relationship": {
+                            "type": "target_scope",
+                            "runner": None,
+                        },
+                        "depth": len(ancestors) + 1,
+                    })
+
         return {"entity": entity_info, "ancestors": ancestors}
 
     # ── Pivot methods ─────────────────────────────────────────────────
