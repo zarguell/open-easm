@@ -41,3 +41,27 @@ def classify_entity(
                 )
 
     return ClassificationResult()
+
+
+def classify_cname_hosting(
+    hostname: str,
+    cname_target: str | None,
+    saas_rules: SaasProviderConfig | None = None,
+) -> dict[str, str]:
+    """Derive hosting metadata for an org-owned hostname from its CNAME target.
+
+    Returns a dict with hosting_provider, hosting_classification, and cname_target
+    when the CNAME target matches a known SaaS provider pattern.
+    Returns empty dict when no match or no CNAME target.
+    """
+    if not cname_target or not saas_rules:
+        return {}
+    target_lower = cname_target.lower()
+    for rule in saas_rules.rules:
+        if fnmatch.fnmatch(target_lower, rule.pattern):
+            return {
+                "hosting_provider": rule.provider,
+                "hosting_classification": rule.classification,
+                "cname_target": cname_target,
+            }
+    return {}

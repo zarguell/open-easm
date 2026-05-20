@@ -236,13 +236,35 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
 
 def dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     hostname = raw.get("hostname", "").strip()
+    record_type = raw.get("record_type", "A")
+
+    if record_type == "CNAME":
+        cname_target = raw.get("cname_target", "").strip()
+        if not hostname or not cname_target:
+            return [], []
+        nh = normalize_entity_value("hostname", hostname)
+        nc = normalize_entity_value("hostname", cname_target)
+        return [
+            EntityCandidate("hostname", nh, {
+                "source": "dns", "record_type": "CNAME",
+                "cname_target": cname_target,
+            }),
+            EntityCandidate("hostname", nc, {
+                "source": "dns_cname",
+                "cname_for": hostname,
+            }),
+        ], [
+            RelationshipCandidate("hostname", nh, "hostname", nc, "cname_to", "pivot"),
+        ]
+
+    # A record (existing behavior)
     ip = raw.get("ip", "").strip()
     if not hostname or not ip:
         return [], []
     nh = normalize_entity_value("hostname", hostname)
     ni = normalize_entity_value("ip", ip)
     return [
-        EntityCandidate("hostname", nh, {"source": "dns", "record_type": raw.get("record_type", "A")}),
+        EntityCandidate("hostname", nh, {"source": "dns", "record_type": "A"}),
         EntityCandidate("ip", ni, {"source": "dns"}),
     ], [
         RelationshipCandidate("hostname", nh, "ip", ni, "resolves_to", "pivot"),
@@ -479,10 +501,14 @@ def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[Relations
     tc = raw.get("takeover_check")
     if not hostname or not tc:
         return [], []
-    return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), {
-        "source": "takeover", "takeover_risk": tc.get("takeover_risk", False),
+    attrs: dict[str, Any] = {
+        "source": "takeover",
+        "takeover_risk": tc.get("takeover_risk", False),
         "fingerprint_matches": tc.get("fingerprint_matches", []),
-    })], []
+    }
+    if tc.get("cname_target"):
+        attrs["cname_target"] = tc["cname_target"]
+    return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), attrs)], []
 
 
 def ripe_stat(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:

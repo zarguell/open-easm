@@ -134,6 +134,23 @@ def _certificate_to_raw_dict(cert: x509.Certificate, hostname: str, port: int) -
 async def dns_resolve(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     results: list[dict[str, Any]] = []
+
+    # Resolve CNAME chain first — reveals SaaS hosting (github.io, netlify.app, etc.)
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            target = str(rdata.target).rstrip(".")
+            results.append({
+                "hostname": hostname,
+                "record_type": "CNAME",
+                "cname_target": target,
+            })
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Resolve A records — always needed for IP entity creation
     try:
         answers = dns.resolver.resolve(hostname, "A")
         for rdata in answers:
@@ -367,16 +384,57 @@ async def subdomain_enum(job: dict, pool) -> list[dict[str, Any]]:
 async def subdomain_takeover(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     fingerprints = {
-        "github.io": "github_pages", "herokuapp.com": "heroku",
-        "s3.amazonaws.com": "aws_s3", "azurewebsites.net": "azure_app",
-        "cloudfront.net": "aws_cloudfront", "surge.sh": "surge",
-        "bitbucket.io": "bitbucket", "netlify.app": "netlify",
-        "firebaseapp.com": "firebase", "ghost.io": "ghost",
+        "github.io": "github_pages",
+        "herokuapp.com": "heroku",
+        "s3.amazonaws.com": "aws_s3",
+        "azurewebsites.net": "azure_app",
+        "cloudfront.net": "aws_cloudfront",
+        "surge.sh": "surge",
+        "bitbucket.io": "bitbucket",
+        "netlify.app": "netlify",
+        "firebaseapp.com": "firebase",
+        "ghost.io": "ghost",
+        "pantheon.io": "pantheon",
+        "myshopify.com": "shopify",
+        "readme.io": "readme",
+        "statuspage.io": "statuspage",
+        "freshdesk.com": "freshdesk",
+        "zendesk.com": "zendesk",
     }
-    vulnerable = [{"pattern": p, "service": s}
-                  for p, s in fingerprints.items() if p in hostname.lower()]
+
+    # Resolve CNAME to find the actual hosting target
+    cname_target = None
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            cname_target = str(rdata.target).rstrip(".")
+            break
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Check CNAME target against fingerprint database
+    vulnerable = []
+    if cname_target:
+        for pattern, service in fingerprints.items():
+            if cname_target.lower().endswith("." + pattern) or cname_target.lower() == pattern:
+                vulnerable.append({
+                    "pattern": pattern,
+                    "service": service,
+                    "cname_target": cname_target,
+                })
+
+    # Fallback: check hostname string itself (legacy behavior for direct SaaS subdomains)
+    if not vulnerable:
+        for pattern, service in fingerprints.items():
+            if pattern in hostname.lower():
+                vulnerable.append({"pattern": pattern, "service": service})
+
     return [{"hostname": hostname, "takeover_check": {
-        "fingerprint_matches": vulnerable, "takeover_risk": len(vulnerable) > 0,
+        "fingerprint_matches": vulnerable,
+        "takeover_risk": len(vulnerable) > 0,
+        "cname_target": cname_target,
     }}]
 
 

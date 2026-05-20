@@ -1,3 +1,10 @@
+runtime:
+  mode: live
+  allow_active_scanning: false    # set true to enable portscan, nuclei, wappalyzer, screenshot
+  allow_external_network: true
+  allow_subprocess: true
+  refresh_kev_on_startup: true
+
 saas_providers:
   rules:
     - pattern: "*.amazonaws.com"

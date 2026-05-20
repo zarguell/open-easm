@@ -56,8 +56,8 @@ async def execute_pivot(
     from easm.pivot.handlers import (
         PIVOT_HANDLER_REGISTRY,
         PIVOT_SOURCE_NAMES,
-        get_default_limiters,
     )
+    from easm.rate_limiter import get_default_limiters
     from easm.pivot.resolver import PivotResolver
     from easm.runners.schemas import OUTPUT_SCHEMAS
     from easm.runtime import get_runtime
