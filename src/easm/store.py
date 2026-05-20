@@ -1115,8 +1115,8 @@ class Store:
                 id AS entity_id,
                 attributes #>> '{{certificate_profile,fingerprint_sha256}}' AS fingerprint_sha256,
                 COALESCE(
-                    attributes #>> '{certificate_profile,subject,common_name}',
-                    (attributes #> '{certificate_profile,san_dns_names}'->>0)
+                    attributes #>> '{{certificate_profile,subject,common_name}}',
+                    (attributes #> '{{certificate_profile,san_dns_names}}'->>0)
                 ) AS subject_cn,
                 attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization,
                 attributes #>> '{{certificate_profile,not_before}}' AS not_before,
