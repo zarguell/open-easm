@@ -95,6 +95,11 @@ export const CertificateInventoryTable: FC<CertificateInventoryTableProps> = ({
                     <div className="flex min-w-0 flex-col gap-1">
                       <span className="text-sm font-semibold text-ink">
                         {certificate.subject_cn || 'Unknown subject'}
+                        {certificate.subject_source === 'san' && (
+                          <span className="ml-1.5 font-mono text-[10px] font-normal uppercase tracking-wider text-mute">
+                            SAN
+                          </span>
+                        )}
                       </span>
                       <span className="font-mono text-[11px] text-mute">
                         {truncateMiddle(certificate.fingerprint_sha256 || certificate.entity_id, 34)}

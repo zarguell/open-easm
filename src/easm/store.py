@@ -1118,6 +1118,11 @@ class Store:
                     attributes #>> '{{certificate_profile,subject,common_name}}',
                     (attributes #> '{{certificate_profile,san_dns_names}}'->>0)
                 ) AS subject_cn,
+                attributes #> '{{certificate_profile,san_dns_names}}' AS san_dns_names,
+                CASE
+                    WHEN attributes #>> '{{certificate_profile,subject,common_name}}' IS NOT NULL THEN 'cn'
+                    ELSE 'san'
+                END AS subject_source,
                 attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization,
                 attributes #>> '{{certificate_profile,not_before}}' AS not_before,
                 attributes #>> '{{certificate_profile,not_after}}' AS not_after,
@@ -1280,6 +1285,8 @@ def _row_to_certificate_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
         "risk": row["risk"],
         "reasons": _json_field(row["reasons"], []),
         "strength": row["strength"],
+        "san_dns_names": _json_field(row["san_dns_names"], []),
+        "subject_source": row["subject_source"],
     }
 
 
