@@ -160,6 +160,7 @@ async def execute_pivot(
                                 ec.attributes, raw_event_id=re_id,
                                 discovery_session_id=discovery_session_id,
                                 discovery_run_id=run_id,
+                                discovery_pivot_id=job_id,
                             )
 
                             if ec.entity_type == "ip":
