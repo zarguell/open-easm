@@ -5,6 +5,7 @@ from typing import Any
 
 import asyncpg
 
+from easm.assets.lifecycle import compute_lifecycle_state
 from easm.correlation.rule import (
     AnalysisMethod,
     CollectMethod,
@@ -27,6 +28,8 @@ class CorrelationEngine:
             if not self._analyze(entities, rule):
                 continue
             first = entities[0]
+            entity_lifecycle = compute_lifecycle_state(first.get("first_seen_at"))
+            novelty_factor = {"new": 1.5, "recent": 1.2, "stable": 1.0}.get(entity_lifecycle, 1.0)
             placeholder_data = dict(first) | (first.get("attributes") or {})
             try:
                 headline = rule.headline.format(**placeholder_data)
@@ -40,7 +43,11 @@ class CorrelationEngine:
                     risk=rule.meta.risk,
                     headline=headline,
                     entity_ids=[e["id"] for e in entities],
-                    evidence={"matched_entities": entities},
+                    evidence={
+                        "matched_entities": entities,
+                        "novelty_factor": novelty_factor,
+                        "lifecycle_state": entity_lifecycle,
+                    },
                 )
             )
         return findings
@@ -88,7 +95,8 @@ class CorrelationEngine:
                 conditions.append(f"({' OR '.join(sub_conditions)})")
 
         query = f"""
-            SELECT id, org_id, target_id, entity_type, entity_value, attributes
+            SELECT id, org_id, target_id, entity_type, entity_value, attributes,
+                   first_seen_at
             FROM entities
             WHERE {' AND '.join(conditions)}
         """
@@ -107,6 +115,7 @@ class CorrelationEngine:
                     if isinstance(r["attributes"], str)
                     else (dict(r["attributes"]) if r["attributes"] else {})
                 ),
+                "first_seen_at": r["first_seen_at"],
             }
             for r in rows
         ]

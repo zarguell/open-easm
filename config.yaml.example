@@ -256,3 +256,35 @@ enrichment:
   censys_id: "${CENSYS_API_ID}"          # env: CENSYS_API_ID
   censys_secret: "${CENSYS_API_SECRET}"  # env: CENSYS_API_SECRET
   securitytrails: "${SECURITYTRAILS_API_KEY}"  # env: SECURITYTRAILS_API_KEY
+
+# Notification channels for alert routing.
+# Findings are dispatched to matching channels based on severity.
+notifications:
+  rate_limit_per_hour: 100
+  channels: []
+  # Example channels:
+  # - name: security-webhook
+  #   type: webhook
+  #   enabled: true
+  #   min_severity: high
+  #   webhook:
+  #     url: "https://example.com/webhook"
+  #     secret: "${WEBHOOK_SECRET}"
+  # - name: security-email
+  #   type: smtp
+  #   enabled: true
+  #   min_severity: medium
+  #   smtp:
+  #     host: "${SMTP_HOST}"
+  #     port: 587
+  #     username: "${SMTP_USERNAME}"
+  #     password: "${SMTP_PASSWORD}"
+  #     use_tls: true
+  #     from_address: "easm@example.com"
+  #     to_addresses: ["security@example.com"]
+  # - name: slack-alerts
+  #   type: slack
+  #   enabled: false
+  #   min_severity: high
+  #   slack:
+  #     url: "${SLACK_WEBHOOK_URL}"

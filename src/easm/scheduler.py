@@ -123,6 +123,25 @@ class Scheduler:
         )
         logger.info("scheduled kev refresh job")
 
+    def setup_epss_refresh(self, pool: Any) -> None:
+        from easm.epss import refresh_epss_cache
+
+        async def _refresh() -> None:
+            try:
+                await refresh_epss_cache(pool)
+            except Exception:
+                logger.exception("epss refresh failed")
+
+        self._scheduler.add_job(
+            _refresh,
+            "cron",
+            id="epss-refresh",
+            hour="5",
+            minute="0",
+            replace_existing=True,
+        )
+        logger.info("scheduled epss refresh job (daily at 05:00)")
+
     def setup_janitor(self, store: Any) -> None:
         async def _enqueue_janitor():
             from easm.tasks.janitor import execute_janitor

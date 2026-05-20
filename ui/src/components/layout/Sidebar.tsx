@@ -15,6 +15,7 @@ import {
   Shield,
   X,
   AlertTriangle,
+  Radio,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -35,6 +36,7 @@ const navItems = [
   { icon: AlertTriangle, label: "Findings", path: "/findings" },
   { icon: Settings, label: "Config", path: "/config" },
   { icon: Bell, label: "Alerts", path: "/alerts" },
+  { icon: Radio, label: "Notifications", path: "/notifications" },
   { icon: Globe, label: "Geo Map", path: "/geo" },
 ] as const;
 

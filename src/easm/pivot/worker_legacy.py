@@ -27,6 +27,33 @@ CORRELATIONS_DIR = Path(__file__).parent.parent.parent / "correlations"
 MAX_TRANSIENT_RETRIES = 3
 
 
+def _dispatch_finding_notification(f: Any, finding_id: Any) -> None:
+    """Fire-and-forget notification dispatch for a newly created finding."""
+    from easm.notifications.dispatcher import get_dispatcher
+    from easm.notifications.types import NotificationPayload
+
+    dispatcher = get_dispatcher()
+    if not dispatcher:
+        return
+    try:
+        import asyncio
+
+        payload = NotificationPayload(
+            finding_id=str(finding_id),
+            rule_id=f.rule_id,
+            headline=f.headline,
+            risk=f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+            severity=f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+            target_id=f.target_id,
+            entity_ids=f.entity_ids,
+            evidence=f.evidence,
+        )
+        loop = asyncio.get_running_loop()
+        loop.create_task(dispatcher.dispatch(payload))
+    except Exception:
+        logger.debug("notification dispatch error (non-fatal)", exc_info=True)
+
+
 async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
     try:
         if not CORRELATIONS_DIR.exists():
@@ -40,7 +67,8 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
             return
         for f in findings:
             try:
-                await store.create_finding(f)
+                finding_id = await store.create_finding(f)
+                _dispatch_finding_notification(f, finding_id)
             except Exception:
                 logger.exception("failed to save finding", extra={"rule_id": f.rule_id})
     except Exception:
@@ -56,7 +84,8 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
             )
             for f in cert_findings:
                 try:
-                    await store.create_finding(f)
+                    finding_id = await store.create_finding(f)
+                    _dispatch_finding_notification(f, finding_id)
                 except Exception:
                     logger.exception(
                         "failed to save certificate finding",

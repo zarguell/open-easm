@@ -57,6 +57,9 @@ async def main() -> None:
 
     configure_runtime(config.runtime)
     configure_enrichment_keys(config)
+
+    from easm.notifications.dispatcher import configure_notifications
+    configure_notifications(config.notifications)
     logger.info(
         "configured runtime",
         mode=config.runtime.mode,
@@ -143,6 +146,16 @@ async def main() -> None:
             logger.exception("initial kev cache population failed (non-fatal)")
 
         scheduler.setup_kev_refresh(pool)
+
+        # EPSS cache refresh
+        try:
+            from easm.epss import refresh_epss_cache
+            epss_count = await asyncio.wait_for(refresh_epss_cache(pool), timeout=120)
+            logger.info("initial epss cache populated", count=epss_count)
+        except Exception:
+            logger.exception("initial epss cache population failed (non-fatal)")
+
+        scheduler.setup_epss_refresh(pool)
 
     app = create_app()
 

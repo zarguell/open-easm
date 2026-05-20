@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -216,12 +217,61 @@ class EnrichmentKeys(BaseModel):
     urlscan: str | None = None
 
 
+class NotificationChannelType(str, enum.Enum):
+    WEBHOOK = "webhook"
+    SLACK = "slack"
+    SMTP = "smtp"
+    PAGERDUTY = "pagerduty"
+
+
+class WebhookChannelConfig(BaseModel):
+    url: str
+    secret: str | None = None
+    method: str = "POST"
+
+
+class SlackChannelConfig(BaseModel):
+    url: str
+
+
+class SmtpChannelConfig(BaseModel):
+    host: str
+    port: int = 587
+    username: str | None = None
+    password: str | None = None
+    use_tls: bool = True
+    from_address: str
+    to_addresses: list[str]
+
+
+class PagerdutyChannelConfig(BaseModel):
+    routing_key: str
+    severity: str = "warning"
+
+
+class NotificationChannel(BaseModel):
+    name: str
+    type: NotificationChannelType
+    enabled: bool = True
+    min_severity: str = "medium"
+    webhook: WebhookChannelConfig | None = None
+    slack: SlackChannelConfig | None = None
+    smtp: SmtpChannelConfig | None = None
+    pagerduty: PagerdutyChannelConfig | None = None
+
+
+class NotificationConfig(BaseModel):
+    channels: list[NotificationChannel] = Field(default_factory=list)
+    rate_limit_per_hour: int = 100
+
+
 class Config(BaseModel):
     targets: list[TargetConfig]
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     saas_providers: SaasProviderConfig = Field(default_factory=SaasProviderConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     enrichment: EnrichmentKeys = Field(default_factory=EnrichmentKeys)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
 
     @model_validator(mode="after")
     def validate_targets(self) -> Config:

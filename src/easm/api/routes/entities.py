@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from easm.api.deps import get_store
+from easm.assets.lifecycle import compute_lifecycle_state
 from easm.store import Store
 
 router = APIRouter(tags=["entities"])
@@ -138,6 +139,7 @@ async def list_entities(
             "first_seen_at": r["first_seen_at"].isoformat(),
             "last_seen_at": r["last_seen_at"].isoformat(),
             "is_first_discovery": r["is_first_discovery"],
+            "lifecycle_state": compute_lifecycle_state(r["first_seen_at"]),
         })
 
     next_cursor = str(results[-1]["id"]) if has_more and results else None
@@ -168,6 +170,7 @@ async def get_entity(entity_id: str, store: Store = Depends(get_store)):
         "first_seen_at": row["first_seen_at"].isoformat(),
         "last_seen_at": row["last_seen_at"].isoformat(),
         "is_first_discovery": row["is_first_discovery"],
+        "lifecycle_state": compute_lifecycle_state(row["first_seen_at"]),
         "raw_event_ids": [str(l["raw_event_id"]) for l in links],
     }
 

@@ -32,6 +32,9 @@ from easm.api.routes import (
 from easm.api.routes import (
     triage as triage_route,
 )
+from easm.api.routes import (
+    notifications as notifications_route,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(certificates.router, prefix="/api")
     app.include_router(assets.router, prefix="/api")
     app.include_router(alerts_route.router, prefix="/api")
+    app.include_router(notifications_route.router, prefix="/api")
     app.include_router(triage_route.router)
     app.include_router(workers.router)
 

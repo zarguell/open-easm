@@ -11,6 +11,7 @@ import { ConfigEditorView } from "./components/config/ConfigEditorView";
 import { AlertsView } from "./components/alerts/AlertsView";
 import { FindingsView } from "./components/findings/FindingsView";
 import { GeoMap } from "./components/GeoMap";
+import { NotificationSettings } from "./components/settings/NotificationSettings";
 
 export function App() {
   return (
@@ -26,6 +27,7 @@ export function App() {
         <Route path="config" element={<ConfigEditorView />} />
         <Route path="alerts" element={<AlertsView />} />
         <Route path="findings" element={<FindingsView />} />
+        <Route path="notifications" element={<NotificationSettings />} />
         <Route path="geo" element={<GeoMap />} />
       </Route>
     </Routes>
