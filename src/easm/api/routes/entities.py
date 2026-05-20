@@ -31,13 +31,17 @@ async def count_entities(
         conditions.append(f"entity_type = ${idx}")
         params.append(entity_type)
     if first_seen_since:
+        from datetime import datetime
+        dt = datetime.fromisoformat(first_seen_since.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"first_seen_at >= ${idx}")
-        params.append(first_seen_since)
+        params.append(dt)
     if last_seen_before:
+        from datetime import datetime
+        dt = datetime.fromisoformat(last_seen_before.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"last_seen_at <= ${idx}")
-        params.append(last_seen_before)
+        params.append(dt)
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     count = await store.pool.fetchval(
         f"SELECT COUNT(*) FROM entities {where}", *params,
@@ -74,7 +78,7 @@ async def list_entities(
     last_seen_before: str | None = Query(None),
     new_since_run_id: str | None = Query(None),
     q: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=5000),
     cursor: str | None = Query(None),
     store: Store = Depends(get_store),
 ):
@@ -91,13 +95,17 @@ async def list_entities(
         conditions.append(f"entity_type = ${idx}")
         sql_params.append(entity_type)
     if first_seen_since:
+        from datetime import datetime
+        dt = datetime.fromisoformat(first_seen_since.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"first_seen_at >= ${idx}")
-        sql_params.append(first_seen_since)
+        sql_params.append(dt)
     if last_seen_before:
+        from datetime import datetime
+        dt = datetime.fromisoformat(last_seen_before.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"last_seen_at <= ${idx}")
-        sql_params.append(last_seen_before)
+        sql_params.append(dt)
     if q:
         idx += 1
         conditions.append(
