@@ -186,29 +186,8 @@ async def _crtsh_run(target, store, trigger_type, run_id, log, http_client):
 
 
 async def _certspotter_run(target, store, trigger_type, run_id, log, http_client):
-    """Run certspotter (SSLMate) CT API for each domain."""
-    import httpx
+    import base64
     import os
-
-    def transform_fn(parsed, item):
-        # Handle different response format - certspotter returns array of issuances
-        if not isinstance(parsed, list):
-            return {}
-        results = []
-        for issuance in parsed:
-            dns_names = issuance.get("dns_names", [])
-            if not dns_names:
-                continue
-            name_value = "\n".join(dns_names)
-            results.append({
-                "name_value": name_value,
-                "issuer_name_id": "",
-                "not_before": issuance.get("not_before", ""),
-                "not_after": issuance.get("not_after", ""),
-                "serial_number": issuance.get("cert_sha256", ""),
-                "fingerprint": issuance.get("tbs_sha256", ""),
-            })
-        return results[0] if results else {}
 
     api_key = os.environ.get("CERTSPOTTER_API_KEY", "")
     if not api_key:
@@ -222,8 +201,21 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
     errors = 0
 
     for domain in target.match_rules.domains:
+        recent = await store.pool.fetchval(
+            "SELECT COUNT(*) FROM raw_events "
+            "WHERE target_id = $1 AND source = 'certspotter' "
+            "AND raw::text LIKE $2 AND collected_at > NOW() - INTERVAL '24 hours'",
+            target.id, f'%{domain}%',
+        )
+        if recent and recent > 0:
+            log(f"certspotter: skipping {domain}, already fetched {recent} issuances in last 24h")
+            continue
+
         try:
-            url = f"{base_url}?domain={domain}&include_subdomains=true&expand=dns_names"
+            url = (
+                f"{base_url}?domain={domain}&include_subdomains=true"
+                f"&expand=dns_names&expand=issuer&expand=revocation"
+            )
             after = None
             rate_limit_retries = 0
             max_rate_limit_retries = 3
@@ -261,6 +253,14 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
                     dns_names = issuance.get("dns_names", [])
                     if not dns_names:
                         continue
+
+                    issuer_obj = issuance.get("issuer") or {}
+                    revocation_obj = issuance.get("revocation") or {}
+                    issuer_name = issuer_obj.get("name", "")
+                    issuer_friendly = issuer_obj.get("friendly_name", "")
+                    issuer_org = _parse_x509_field(issuer_name, "O=")
+                    issuer_cn = _parse_x509_field(issuer_name, "CN=")
+
                     raw = {
                         "name_value": "\n".join(dns_names),
                         "issuer_name_id": "",
@@ -268,7 +268,22 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
                         "not_after": issuance.get("not_after", ""),
                         "serial_number": issuance.get("cert_sha256", ""),
                         "fingerprint": issuance.get("tbs_sha256", ""),
+                        "fingerprint_sha256": issuance.get("cert_sha256", ""),
+                        "issuer_cn": issuer_cn or issuer_friendly,
+                        "issuer_org": issuer_org or issuer_friendly,
+                        "revoked": issuance.get("revoked"),
+                        "revocation_time": revocation_obj.get("time"),
+                        "revocation_reason": revocation_obj.get("reason"),
                     }
+
+                    cert_der_b64 = issuance.get("cert_der")
+                    if cert_der_b64:
+                        try:
+                            parsed = _parse_cert_der(cert_der_b64)
+                            raw.update(parsed)
+                        except Exception:
+                            pass
+
                     raw_event_id = await store.insert_raw_event(
                         target.org_id, target.id, "certspotter", raw, run_id
                     )
@@ -291,6 +306,66 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
             log(f"certspotter error for {domain}: {e}")
 
     return inserted, deduped, errors
+
+
+def _parse_x509_field(dn: str, prefix: str) -> str | None:
+    for part in dn.split(","):
+        part = part.strip()
+        if part.startswith(prefix):
+            return part[len(prefix):].strip()
+    return None
+
+
+def _parse_cert_der(cert_der_b64: str) -> dict[str, Any]:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    der_bytes = base64.b64decode(cert_der_b64)
+    cert = x509.load_der_x509_certificate(der_bytes)
+
+    subject_cn = None
+    subject_org = None
+    for attr in cert.subject:
+        if attr.oid == x509.oid.NameOID.COMMON_NAME:
+            subject_cn = attr.value
+        elif attr.oid == x509.oid.NameOID.ORGANIZATION_NAME:
+            subject_org = attr.value
+
+    san_names = []
+    try:
+        san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        san_names = san_ext.value.get_values_for_type(x509.DNSName)
+    except x509.ExtensionNotFound:
+        pass
+
+    pub = cert.public_key()
+    pub_info = {"algorithm": type(pub).__name__.replace("_", " ").replace("RSAPublicKey", "RSA")}
+    if hasattr(pub, "key_size"):
+        pub_info["size_bits"] = pub.key_size
+    if hasattr(pub, "curve"):
+        pub_info["curve"] = pub.curve.name if hasattr(pub.curve, "name") else str(pub.curve)
+
+    sig_alg = cert.signature_algorithm_oid._name if hasattr(cert.signature_algorithm_oid, "_name") else ""
+
+    return {
+        "subject_cn": subject_cn,
+        "subject_org": subject_org,
+        "san_dns_names": san_names,
+        "public_key_algorithm": pub_info.get("algorithm", ""),
+        "public_key_size_bits": pub_info.get("size_bits"),
+        "public_key_curve": pub_info.get("curve", ""),
+        "signature_algorithm": sig_alg,
+        "is_ca": _is_ca(cert),
+    }
+
+
+def _is_ca(cert) -> bool:
+    from cryptography import x509
+    try:
+        basic_constraints = cert.extensions.get_extension_for_class(x509.BasicConstraints)
+        return basic_constraints.value.ca
+    except x509.ExtensionNotFound:
+        return False
 
 
 async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client):
