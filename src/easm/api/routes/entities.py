@@ -118,6 +118,13 @@ async def list_entities(
         sql_params.append(cursor)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    count_where = where
+    count_params = list(sql_params)
+    total_count = await store.pool.fetchval(
+        f"SELECT COUNT(*) FROM entities {count_where}", *count_params,
+    ) or 0
+
     idx += 1
     query = f"""
         SELECT id, org_id, target_id, entity_type, entity_value, attributes,
@@ -151,7 +158,7 @@ async def list_entities(
         })
 
     next_cursor = str(results[-1]["id"]) if has_more and results else None
-    return {"entities": entities_list, "next_cursor": next_cursor}
+    return {"entities": entities_list, "next_cursor": next_cursor, "total_count": total_count}
 
 
 @router.get("/entities/{entity_id}")

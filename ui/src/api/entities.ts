@@ -33,6 +33,7 @@ export interface Relationship {
 export interface EntitiesResponse {
   entities: Entity[]
   next_cursor: string | null
+  total_count: number
 }
 
 export function useEntities(params: {

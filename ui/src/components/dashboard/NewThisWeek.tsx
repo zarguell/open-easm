@@ -7,7 +7,7 @@ import { Skeleton } from '../shared/Skeleton'
 import { getEntityColor } from '../../lib/entity-colors'
 import { truncateMiddle } from '../../lib/format'
 
-const TYPES_TO_TRACK = ['ip', 'hostname', 'domain', 'certificate'] as const
+const TYPES_TO_TRACK = ['ip', 'hostname', 'domain', 'certificate', 'asn', 'ip_range', 'org'] as const
 
 export const NewThisWeek: FC = () => {
   const sevenDaysAgo = useMemo(() => {
@@ -18,7 +18,7 @@ export const NewThisWeek: FC = () => {
 
   const { data, isLoading, isError, error, refetch } = useEntities({
     first_seen_since: sevenDaysAgo,
-    limit: 50,
+    limit: 500,
   })
 
   if (isError) {
@@ -35,7 +35,8 @@ export const NewThisWeek: FC = () => {
     return counts
   }, [entities])
 
-  const totalNew = entities.length
+  const hasMore = data?.pages[data.pages.length - 1]?.next_cursor !== null
+  const totalShown = entities.length
   const recent = entities.slice(0, 10)
 
   return (
@@ -43,7 +44,7 @@ export const NewThisWeek: FC = () => {
       <div>
         <h2 className="text-sm font-semibold text-ink">New This Week</h2>
         <p className="mt-1 text-xs text-mute">
-          {totalNew} entities discovered in the last 7 days
+          {totalShown}{hasMore ? '+' : ''} entities discovered in the last 7 days
         </p>
       </div>
 
@@ -55,7 +56,7 @@ export const NewThisWeek: FC = () => {
         </div>
       ) : (
         <>
-          {totalNew === 0 ? (
+          {totalShown === 0 ? (
             <p className="text-sm text-mute">No new entities this week</p>
           ) : (
             <>
@@ -70,7 +71,7 @@ export const NewThisWeek: FC = () => {
                       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold"
                       style={{ backgroundColor: `${color}1f`, color }}
                     >
-                      {type === 'ip' ? 'IP' : type.charAt(0).toUpperCase() + type.slice(1)}
+                      {type === 'ip' ? 'IP' : type === 'asn' ? 'ASN' : type.charAt(0).toUpperCase() + type.slice(1)}
                       <span className="font-bold">{count}</span>
                     </span>
                   )
