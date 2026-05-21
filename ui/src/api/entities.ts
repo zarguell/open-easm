@@ -40,6 +40,7 @@ export function useEntities(params: {
   entity_type?: string
   first_seen_since?: string
   last_seen_before?: string
+  q?: string
   limit?: number
   cursor?: string
 }) {
@@ -51,6 +52,7 @@ export function useEntities(params: {
       if (params.entity_type) searchParams.entity_type = params.entity_type
       if (params.first_seen_since) searchParams.first_seen_since = params.first_seen_since
       if (params.last_seen_before) searchParams.last_seen_before = params.last_seen_before
+      if (params.q) searchParams.q = params.q
       searchParams.limit = String(params.limit ?? 50)
       if (pageParam) searchParams.cursor = pageParam as string
       return api.get('entities', { searchParams }).json<EntitiesResponse>()
