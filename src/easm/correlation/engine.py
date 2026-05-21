@@ -6,6 +6,7 @@ from typing import Any
 import asyncpg
 
 from easm.assets.lifecycle import compute_lifecycle_state
+from easm.correlation.location import infer_finding_location
 from easm.correlation.rule import (
     AnalysisMethod,
     CollectMethod,
@@ -64,6 +65,7 @@ class CorrelationEngine:
             except KeyError:
                 headline = rule.headline
             conf_score, conf_level = _compute_finding_confidence(entities)
+            location = infer_finding_location(rule.id, headline, entities)
             findings.append(
                 Finding(
                     org_id=org_id,
@@ -76,6 +78,7 @@ class CorrelationEngine:
                         "matched_entities": entities,
                         "novelty_factor": novelty_factor,
                         "lifecycle_state": entity_lifecycle,
+                        "location": location.to_dict(),
                     },
                     confidence_score=conf_score,
                     confidence_level=conf_level,
