@@ -252,3 +252,86 @@ async def delete_api_key(api_key_id: str, request: Request) -> Response:
     if not deleted:
         return Response(status_code=404, content='{"error": "not_found"}')
     return Response(status_code=204)
+
+
+@router.get("/auth/sso/{provider}")
+async def sso_login(provider: str, request: Request) -> Any:
+    from easm.api.deps import get_auth_config
+    from easm.auth.sso import get_sso_provider
+
+    auth_config = get_auth_config()
+    if auth_config.sso is None or auth_config.sso.provider != provider:
+        return Response(status_code=404, content='{"error": "sso_not_configured"}')
+
+    sso = get_sso_provider(auth_config.sso)
+    async with sso:
+        return await sso.get_login_redirect()
+
+
+@router.get("/auth/sso/{provider}/callback")
+async def sso_callback(provider: str, request: Request) -> Any:
+    from easm.api.deps import get_auth_config, get_store
+    from easm.auth.config import LocalAuthConfig
+    from easm.auth.sso import get_sso_provider
+
+    auth_config = get_auth_config()
+    if auth_config.sso is None or auth_config.sso.provider != provider:
+        return Response(status_code=404, content='{"error": "sso_not_configured"}')
+
+    sso = get_sso_provider(auth_config.sso)
+    async with sso:
+        sso_user = await sso.verify_and_process(request)
+
+    if sso_user is None:
+        return Response(status_code=401, content='{"error": "sso_verification_failed"}')
+
+    store = get_store()
+    provider_id = str(sso_user.id) if sso_user.id else ""
+
+    # Find or create user
+    user = await store.get_user_by_sso(provider, provider_id)
+    if user is None:
+        import re
+
+        raw_name = sso_user.display_name or sso_user.email or f"{provider}_user"
+        username = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_name)[:64]
+        existing = await store.get_user_by_username("default", username)
+        if existing is not None:
+            username = f"{username}_{provider_id[:8]}"
+        user = await store.create_user(
+            org_id="default",
+            username=username,
+            email=sso_user.email,
+            display_name=sso_user.display_name,
+            role="admin",
+            sso_provider=provider,
+            sso_provider_id=provider_id,
+        )
+
+    # Resolve session config: prefer auth.local, fall back to sso.session_secret
+    local_cfg = auth_config.local
+    if local_cfg is None:
+        local_cfg = LocalAuthConfig(
+            session_secret=auth_config.sso.session_secret,  # type: ignore[arg-type]
+            session_max_age_seconds=86400,
+        )
+
+    token = create_session_token(
+        user_id=str(user["id"]),
+        username=user["username"],
+        org_id=user["org_id"],
+        role=user["role"],
+        secret=local_cfg.session_secret,
+        max_age_seconds=local_cfg.session_max_age_seconds,
+    )
+
+    response = Response(
+        status_code=200,
+        content=json.dumps(_user_response(user)).encode(),
+        media_type="application/json",
+    )
+    _set_session_cookie(
+        response, token, local_cfg.session_max_age_seconds, local_cfg.cookie_name,
+        secure=local_cfg.cookie_secure,
+    )
+    return response
