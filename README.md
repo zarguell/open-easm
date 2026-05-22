@@ -37,6 +37,13 @@ Self-hosted passive External Attack Surface Management platform. Starts from you
 - **Config Editor** — Edit your `config.yaml` directly from the web UI with validation and config history.
 - **Dark Terminal-Inspired Design** — Near-black canvas with electric-teal accents and entity-type color coding.
 
+### Authentication & Access Control
+- **Four Auth Modes** — None (open, default), reverse proxy (trust header from trusted IPs), local username/password (bcrypt + JWT sessions), and SSO (Google, GitHub, Microsoft via fastapi-sso).
+- **API Key Management** — Create, list, and delete API keys with configurable expiration. Keys are HMAC-SHA256 hashed with a server-side pepper. Works in any auth mode.
+- **Bootstrap Registration** — First user self-registers as admin; subsequent users require an existing admin.
+- **Secure Sessions** — JWT tokens in httpOnly cookies with `SameSite=Strict`, configurable `Secure` flag, and `iss`/`aud` claims.
+- **Forward-Compatible** — Users and API keys include `org_id` and `role` fields with database-level CHECK constraints, ready for multi-tenancy and RBAC.
+
 ### Operations
 - **Single Binary Deploy** — Multi-stage Dockerfile builds the React SPA and Python backend into one container.
 - **Config Hot-Reload** — Update targets and runner config without restarting.
@@ -73,11 +80,13 @@ cd open-easm
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env if you want to change the default DB credentials
+# Edit .env — set EASM_SESSION_SECRET if using local or SSO auth
 
-# 3. Configure your targets
+# 3. Configure your targets and auth
 cp config.yaml.example config.yaml
 # Edit config.yaml with your organization's ASNs, domains, and keywords
+# Set auth.mode to local, reverse_proxy, or sso if you want authentication
+# Default is "none" (no auth, suitable for private networks)
 
 # 4. Start
 docker compose up -d
@@ -165,13 +174,17 @@ See `config.yaml.example` for the full reference with all 18 runners and 18 pivo
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    UI (React 18)                       │
+│                    UI (React 19)                       │
 │  Dashboard · Inventory · Graph · Runs · Targets        │
-│  Config Editor · Alerts · Geo Map                      │
+│  Config Editor · Alerts · Geo Map · Login/Register     │
 └──────────────────────┬───────────────────────────────┘
                        │ /api/*
 ┌──────────────────────┴───────────────────────────────┐
 │              FastAPI (Python 3.14)                     │
+│  ┌───────────────────────────────────────────────┐    │
+│  │         Auth Middleware (mode-based)           │    │
+│  │  API Keys · Reverse Proxy · Local · SSO       │    │
+│  └───────────────────┬───────────────────────────┘    │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐  │
 │  │ Scheduler │ │  Runners  │ │  Pivot Workers (×3)  │  │
 │  │(APScheduler)│ │  (18)    │ │  + Correlation Engine│  │
@@ -289,6 +302,20 @@ Add your own rules by creating YAML files in the `correlations/` directory.
 | `GET /api/config/history` | Config snapshot history |
 | `GET /api/healthz` | Health check with binary availability |
 
+### Authentication
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/auth/register` | Register first admin user (bootstrap) |
+| `POST /api/auth/login` | Login with username/password, sets session cookie |
+| `POST /api/auth/logout` | Clear session cookie |
+| `GET /api/auth/me` | Get current authenticated user |
+| `POST /api/auth/api-keys` | Create API key (returns raw key once) |
+| `GET /api/auth/api-keys` | List user's API keys |
+| `DELETE /api/auth/api-keys/{id}` | Delete an API key |
+| `GET /api/auth/sso/{provider}` | Start SSO login flow |
+| `GET /api/auth/sso/{provider}/callback` | SSO callback |
+
 Interactive docs available at `http://localhost:8000/docs`.
 
 ## Tech Stack
@@ -296,7 +323,8 @@ Interactive docs available at `http://localhost:8000/docs`.
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.14, FastAPI, asyncpg, APScheduler, Pydantic |
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS 4 |
+| Auth | PyJWT, passlib/bcrypt, fastapi-sso, HMAC-SHA256 |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
 | Graph | D3-force |
 | Geo Map | MapLibre GL |
 | Database | PostgreSQL 18 |
