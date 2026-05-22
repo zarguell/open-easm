@@ -24,14 +24,14 @@ export function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-canvas px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md p-8 bg-canvas-elevated rounded-lg border border-hairline shadow-lg"
+        className="flex flex-col gap-4 w-full max-w-md p-8 bg-canvas-elevated rounded-lg border border-hairline shadow-lg"
       >
-        <h1 className="text-2xl font-bold mb-6 text-center">Sign In</h1>
+        <h1 className="text-2xl font-bold text-center">Sign In</h1>
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">{error}</div>
+          <div className="p-3 bg-red-50 text-red-700 rounded text-sm">{error}</div>
         )}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Username</label>
+        <div className="flex flex-col gap-1">
+          <label className="block text-sm font-medium">Username</label>
           <input
             type="text"
             value={username}
@@ -41,8 +41,8 @@ export function LoginPage() {
             autoFocus
           />
         </div>
-        <div className="mb-6">
-          <label className="block text-sm font-medium mb-1">Password</label>
+        <div className="flex flex-col gap-1">
+          <label className="block text-sm font-medium">Password</label>
           <input
             type="password"
             value={password}
@@ -57,7 +57,7 @@ export function LoginPage() {
         >
           Sign In
         </button>
-        <p className="mt-4 text-center text-sm text-mute">
+        <p className="text-center text-sm text-mute">
           No account?{" "}
           <Link to="/ui/register" className="text-primary underline">
             Register
