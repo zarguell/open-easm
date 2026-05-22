@@ -5,6 +5,7 @@ import re
 import uuid
 
 from easm.config import TargetConfig
+from easm.network_guard import resolve_and_validate
 from easm.runners.base import BaseRunner
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,17 @@ class PortScanRunner(BaseRunner):
         self._log(f"[portscan] scanning {len(scan_targets)} target(s)")
 
         for hostname in scan_targets:
+            guard = resolve_and_validate(hostname)
+            if not guard.safe:
+                self._log(
+                    f"[portscan] skipping {hostname}: {guard.reason}"
+                )
+                logger.warning(
+                    "portscan blocked by network guard",
+                    extra={"hostname": hostname, "reason": guard.reason},
+                )
+                continue
+
             cmd = [
                 "nmap", "-Pn", "-sV", "-p", port_arg,
                 "--open", "-oG", "-", hostname,

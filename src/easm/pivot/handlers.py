@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID, NameOID
 
 from easm.geoip import GeoIpLookup
+from easm.network_guard import resolve_and_validate
 from easm.vuln_enrichment import cpe_vuln_enrich
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,12 @@ async def ip_in_range(job: dict, pool) -> list[dict[str, Any]]:
 
 async def tls_cert_grab(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
+
+    guard = resolve_and_validate(hostname)
+    if not guard.safe:
+        logger.debug("TLS cert grab blocked for %s: %s", hostname, guard.reason)
+        return [{"hostname": hostname, "message": f"blocked by network guard: {guard.reason}"}]
+
     port = 443
     timeout = 10
     try:

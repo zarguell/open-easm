@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from easm.api.deps import get_store
 from easm.api.sse import get_finding_stream
 from easm.correlation.rule import VALID_FINDING_STATUSES
+from easm.sla.models import compute_sla_status, compute_sla_summary
 from easm.store import Store
 
 router = APIRouter(tags=["findings"])
@@ -91,7 +92,24 @@ async def list_findings(
         rule_id=rule_id, q=q, confidence_min=confidence_min,
         limit=limit, offset=offset,
     )
+    for f in results:
+        f["sla"] = compute_sla_status(
+            severity=f.get("risk", "info"),
+            first_seen_at=f.get("first_seen_at"),
+            finding_status=f.get("status", "open"),
+        ).to_dict()
     return {"findings": results}
+
+
+@router.get("/findings/sla-summary")
+async def sla_summary(
+    target_id: str | None = Query(None),
+    store: Store = Depends(get_store),
+):
+    findings = await store.list_findings(
+        target_id=target_id, limit=5000,
+    )
+    return compute_sla_summary(findings)
 
 
 @router.get("/findings/{finding_id}")
