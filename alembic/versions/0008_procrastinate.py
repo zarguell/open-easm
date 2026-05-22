@@ -37,11 +37,10 @@ def upgrade() -> None:
 
     import psycopg
 
-    with psycopg.connect(dsn) as conn:
+    with psycopg.connect(dsn, autocommit=True) as conn:
         try:
             conn.execute(schema_sql)
         except psycopg.errors.DuplicateObject:
-            # Schema already exists from a previous run
             pass
 
         conn.execute("""

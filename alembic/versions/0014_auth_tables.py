@@ -46,7 +46,7 @@ def upgrade() -> None:
     op.create_table(
         "api_keys",
         sa.Column("id", sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users(id)", ondelete="CASCADE"), nullable=False),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("org_id", sa.Text(), nullable=False, server_default="default"),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("key_prefix", sa.Text(), nullable=False),
