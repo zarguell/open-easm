@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fastapi import Request
+
 if TYPE_CHECKING:
+    from easm.auth.config import AuthConfig
     from easm.config import Config
     from easm.scheduler import Scheduler
     from easm.store import Store
 
-
 _config: Config | None = None
 _store: Store | None = None
 _scheduler: Scheduler | None = None
+_auth_config: AuthConfig | None = None
 
 
 def set_config(config: Config) -> None:
@@ -30,6 +33,11 @@ def set_scheduler(scheduler: Scheduler) -> None:
     _scheduler = scheduler
 
 
+def set_auth_config(auth_config: AuthConfig) -> None:
+    global _auth_config
+    _auth_config = auth_config
+
+
 def get_config() -> Config:
     if _config is None:
         raise RuntimeError("config not initialized")
@@ -46,3 +54,14 @@ def get_scheduler() -> Scheduler:
     if _scheduler is None:
         raise RuntimeError("scheduler not initialized")
     return _scheduler
+
+
+def get_auth_config() -> AuthConfig:
+    if _auth_config is None:
+        from easm.auth.config import AuthConfig
+        return AuthConfig()
+    return _auth_config
+
+
+def get_current_user(request: Request) -> dict | None:
+    return getattr(request.state, "user", None)
