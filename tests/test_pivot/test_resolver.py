@@ -54,7 +54,7 @@ async def test_resolver_skips_saas_hosted_entity(mock_execute_pivot, db_pool):
     configure_mock, defer_mock = _make_defer_mock()
     mock_execute_pivot.configure = configure_mock
 
-    entity_id = uuid.uuid7()
+    entity_id = uuid.uuid4()
     await pool.execute(
         """INSERT INTO entities (id, org_id, target_id, entity_type, entity_value, attributes)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
@@ -80,7 +80,7 @@ async def test_resolver_allows_org_owned_entity(mock_execute_pivot, db_pool):
     configure_mock, defer_mock = _make_defer_mock()
     mock_execute_pivot.configure = configure_mock
 
-    entity_id = uuid.uuid7()
+    entity_id = uuid.uuid4()
     await pool.execute(
         """INSERT INTO entities (id, org_id, target_id, entity_type, entity_value, attributes)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
@@ -106,7 +106,7 @@ async def test_resolver_skips_third_party_integrated(mock_execute_pivot, db_pool
     configure_mock, defer_mock = _make_defer_mock()
     mock_execute_pivot.configure = configure_mock
 
-    entity_id = uuid.uuid7()
+    entity_id = uuid.uuid4()
     await pool.execute(
         """INSERT INTO entities (id, org_id, target_id, entity_type, entity_value, attributes)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
@@ -141,7 +141,7 @@ async def test_resolver_entity_without_classification_still_pivots(mock_execute_
     configure_mock, defer_mock = _make_defer_mock()
     mock_execute_pivot.configure = configure_mock
 
-    entity_id = uuid.uuid7()
+    entity_id = uuid.uuid4()
     await pool.execute(
         """INSERT INTO entities (id, org_id, target_id, entity_type, entity_value, attributes)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",

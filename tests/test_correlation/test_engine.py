@@ -112,9 +112,9 @@ async def test_collect_no_match(engine: CorrelationEngine, seed_entities):
 @pytest.mark.asyncio
 async def test_aggregate_by_entity_value(engine: CorrelationEngine, seed_entities):
     matched = [
-        {"entity_value": "dev.example.com", "entity_type": "hostname", "id": str(uuid.uuid7())},
-        {"entity_value": "dev.example.com", "entity_type": "hostname", "id": str(uuid.uuid7())},
-        {"entity_value": "test.example.com", "entity_type": "hostname", "id": str(uuid.uuid7())},
+        {"entity_value": "dev.example.com", "entity_type": "hostname", "id": str(uuid.uuid4())},
+        {"entity_value": "dev.example.com", "entity_type": "hostname", "id": str(uuid.uuid4())},
+        {"entity_value": "test.example.com", "entity_type": "hostname", "id": str(uuid.uuid4())},
     ]
     rule = CorrelationRule(
         id="test_agg",
@@ -204,8 +204,8 @@ async def test_evaluate_with_threshold(engine: CorrelationEngine, db_pool):
         headline="Multi: {entity_value}",
         analysis=[AnalysisStep(method=AnalysisMethod.THRESHOLD, field="entity_value", minimum=2)],
     )
-    run_id = uuid.uuid7()
-    event_id = uuid.uuid7()
+    run_id = uuid.uuid4()
+    event_id = uuid.uuid4()
     async with db_pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",

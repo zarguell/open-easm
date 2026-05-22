@@ -46,7 +46,7 @@ async def seed_finding(db_pool) -> str:
         rule_id="dev_or_test_system",
         risk="medium",
         headline="Development system exposed: dev.example.com",
-        entity_ids=[str(uuid.uuid7())],
+        entity_ids=[str(uuid.uuid4())],
         evidence={"matched_entities": [{"entity_value": "dev.example.com"}]},
     )
     fid = await store.create_finding(f)

@@ -5,6 +5,8 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+
+from easm._compat import uuid7
 from typing import Any, cast
 
 import asyncpg
@@ -90,7 +92,7 @@ class Store:
         scheduled_for: datetime | None = None,
         org_id: str = "default",
     ) -> uuid.UUID:
-        discovery_session_id = uuid.uuid7()
+        discovery_session_id = uuid7()
         row = await self.pool.fetchrow(
             """
             INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for, discovery_session_id)
@@ -1108,7 +1110,7 @@ class Store:
             finding.headline,
             finding.description,
             [uuid.UUID(eid) for eid in finding.entity_ids],
-            json.dumps(finding.evidence),
+            json.dumps(finding.evidence, default=str),
             finding.status,
             finding.confidence_score,
             finding.confidence_level,

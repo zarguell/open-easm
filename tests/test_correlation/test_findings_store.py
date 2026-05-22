@@ -22,7 +22,7 @@ async def test_create_finding(store: Store):
         risk="high",
         headline="Test finding",
         description="A detailed description",
-        entity_ids=[str(uuid.uuid7())],
+        entity_ids=[str(uuid.uuid4())],
         evidence={"key": "value"},
     )
     finding_id = await store.create_finding(f)

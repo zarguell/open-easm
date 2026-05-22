@@ -39,8 +39,8 @@ async def test_rules_load_and_validate(loaded_rules):
 
 @pytest.mark.asyncio
 async def test_full_pipeline_integration(engine: CorrelationEngine, findings_store: Store, db_pool):
-    run_id = uuid.uuid7()
-    event_id = uuid.uuid7()
+    run_id = uuid.uuid4()
+    event_id = uuid.uuid4()
     async with db_pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",
