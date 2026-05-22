@@ -11,7 +11,7 @@ from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
-from easm.api.deps import set_config, set_scheduler, set_store
+from easm.api.deps import set_auth_config, set_config, set_scheduler, set_store
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
 from easm.pivot.handlers import configure_enrichment_keys
@@ -120,6 +120,7 @@ async def main() -> None:
     scheduler = Scheduler()
 
     set_config(config)
+    set_auth_config(config.auth)
     set_store(store)
     set_scheduler(scheduler)
 
