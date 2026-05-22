@@ -288,3 +288,36 @@ notifications:
   #   min_severity: high
   #   slack:
   #     url: "${SLACK_WEBHOOK_URL}"
+
+# Authentication configuration
+# auth:
+#   mode: none  # none | reverse_proxy | local | sso
+#
+#   # API key authentication (works in any mode)
+#   api_keys:
+#     enabled: true
+#     header_name: X-API-Key
+#
+#   # Reverse proxy mode: trust header from trusted proxy IPs
+#   # reverse_proxy:
+#   #   header: X-Forwarded-User
+#   #   trusted_proxies:
+#   #     - 10.0.0.0/8
+#   #     - 172.16.0.0/12
+#   #   auto_provision: false  # Create users from header on first request
+#   #   auto_provision_role: viewer
+#
+#   # Local mode: username/password with JWT sessions
+#   # local:
+#   #   session_secret: ${EASM_SESSION_SECRET}
+#   #   session_max_age_seconds: 86400
+#   #   cookie_name: easm_session
+#   #   cookie_secure: true  # Set false only in development without HTTPS
+#
+#   # SSO mode: OAuth2 via external provider
+#   # sso:
+#   #   provider: google  # google | github | microsoft | okta
+#   #   client_id: your-client-id
+#   #   client_secret: your-client-secret
+#   #   redirect_uri: https://your-domain/api/auth/sso/callback
+#   #   session_secret: ${EASM_SESSION_SECRET}  # Required if auth.local not set

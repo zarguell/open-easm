@@ -7,6 +7,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from easm.auth.config import AuthConfig
+
 VALID_RUNNER_NAMES = {
     "certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "certspotter",
     "cloud_enum", "paste_monitor", "gist_monitor", "stackoverflow_monitor",
@@ -272,6 +274,7 @@ class Config(BaseModel):
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     enrichment: EnrichmentKeys = Field(default_factory=EnrichmentKeys)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     @model_validator(mode="after")
     def validate_targets(self) -> Config:
