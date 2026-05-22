@@ -21,10 +21,10 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-canvas">
+    <div className="flex items-center justify-center min-h-screen bg-canvas px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm p-8 bg-surface rounded-lg border border-border shadow-lg"
+        className="w-full max-w-md p-8 bg-canvas-elevated rounded-lg border border-hairline shadow-lg"
       >
         <h1 className="text-2xl font-bold mb-6 text-center">Sign In</h1>
         {error && (
@@ -36,7 +36,7 @@ export function LoginPage() {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            className="w-full px-3 py-2 border border-hairline rounded bg-canvas"
             required
             autoFocus
           />
@@ -47,7 +47,7 @@ export function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            className="w-full px-3 py-2 border border-hairline rounded bg-canvas"
             required
           />
         </div>
@@ -57,7 +57,7 @@ export function LoginPage() {
         >
           Sign In
         </button>
-        <p className="mt-4 text-center text-sm text-muted">
+        <p className="mt-4 text-center text-sm text-mute">
           No account?{" "}
           <Link to="/ui/register" className="text-primary underline">
             Register

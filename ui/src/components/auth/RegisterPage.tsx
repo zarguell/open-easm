@@ -31,10 +31,10 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-canvas">
+    <div className="flex items-center justify-center min-h-screen bg-canvas px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm p-8 bg-surface rounded-lg border border-border shadow-lg"
+        className="w-full max-w-md p-8 bg-canvas-elevated rounded-lg border border-hairline shadow-lg"
       >
         <h1 className="text-2xl font-bold mb-6 text-center">Create Account</h1>
         {error && (
@@ -46,7 +46,7 @@ export function RegisterPage() {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            className="w-full px-3 py-2 border border-hairline rounded bg-canvas"
             required
             minLength={3}
             autoFocus
@@ -58,7 +58,7 @@ export function RegisterPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            className="w-full px-3 py-2 border border-hairline rounded bg-canvas"
             required
             minLength={8}
           />
@@ -69,7 +69,7 @@ export function RegisterPage() {
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            className="w-full px-3 py-2 border border-hairline rounded bg-canvas"
             required
             minLength={8}
           />
@@ -80,7 +80,7 @@ export function RegisterPage() {
         >
           Create Account
         </button>
-        <p className="mt-4 text-center text-sm text-muted">
+        <p className="mt-4 text-center text-sm text-mute">
           Already have an account?{" "}
           <Link to="/ui/login" className="text-primary underline">
             Sign In
