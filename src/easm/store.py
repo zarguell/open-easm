@@ -1316,6 +1316,205 @@ class Store:
                 summary[summary_key][value] = summary[summary_key].get(value, 0) + 1
         return summary
 
+    async def migrate_ip_associations(self) -> dict[str, int]:
+        """One-time migration: associate existing IPs with known IP ranges and geo data."""
+        import ipaddress
+        from easm.pivot.handlers import GeoIpLookup
+
+        results = {"ip_range_associations": 0, "geo_enrichments": 0}
+
+        ip_ranges = await self.pool.fetch(
+            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
+        )
+        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
+
+        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
+
+        for ip_row in ips:
+            ip_value = ip_row["entity_value"]
+            ip_id = ip_row["id"]
+            attrs = ip_row["attributes"]
+            if isinstance(attrs, str):
+                attrs = json.loads(attrs) if attrs else {}
+            elif attrs is None:
+                attrs = {}
+
+            for range_id, range_value in range_map.items():
+                try:
+                    network = ipaddress.ip_network(range_value, strict=False)
+                    if ipaddress.ip_address(ip_value) in network:
+                        await self.upsert_relationship(
+                            ip_row["org_id"],
+                            ip_id,
+                            range_id,
+                            "ip_in_range",
+                            "retroactive_migration",
+                        )
+                        results["ip_range_associations"] += 1
+                        break
+                except ValueError:
+                    continue
+
+            if "geo" not in attrs:
+                try:
+                    lookup = GeoIpLookup()
+                    result = lookup.lookup(ip_value)
+                    if result:
+                        attrs["geo"] = result.to_dict()
+                        await self.pool.execute(
+                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                            json.dumps(attrs), ip_id,
+                        )
+                        results["geo_enrichments"] += 1
+                except Exception:
+                    pass
+
+        logger.info("migration complete", extra=results)
+        return results
+
+    # ── User methods ──────────────────────────────────────────────
+
+    async def user_count(self) -> int:
+        return await self.pool.fetchval("SELECT COUNT(*) FROM users")
+
+    async def is_first_user(self) -> bool:
+        """Atomically check if no users exist. Use inside a transaction for bootstrap."""
+        return await self.pool.fetchval("SELECT COUNT(*) = 0 FROM users")
+
+    async def create_user(
+        self,
+        *,
+        org_id: str = "default",
+        username: str,
+        email: str | None = None,
+        display_name: str | None = None,
+        password_hash: str | None = None,
+        role: str = "admin",
+        sso_provider: str | None = None,
+        sso_provider_id: str | None = None,
+    ) -> dict:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO users (org_id, username, email, display_name, password_hash, role, sso_provider, sso_provider_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+            """,
+            org_id,
+            username,
+            email,
+            display_name,
+            password_hash,
+            role,
+            sso_provider,
+            sso_provider_id,
+        )
+        return dict(row)
+
+    async def get_user_by_username(self, org_id: str, username: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE org_id = $1 AND username = $2 AND is_active = true",
+            org_id,
+            username,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_id(self, user_id) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE id = $1 AND is_active = true",
+            user_id,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_sso(self, provider: str, provider_id: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE sso_provider = $1 AND sso_provider_id = $2 AND is_active = true",
+            provider,
+            provider_id,
+        )
+        return dict(row) if row else None
+
+    async def update_user_last_seen(self, user_id) -> None:
+        await self.pool.execute(
+            "UPDATE users SET updated_at = NOW() WHERE id = $1",
+            user_id,
+        )
+
+    # ── API key methods ───────────────────────────────────────────
+
+    async def create_api_key(
+        self,
+        *,
+        user_id,
+        org_id: str = "default",
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        expires_at=None,
+    ) -> dict:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO api_keys (user_id, org_id, name, key_prefix, key_hash, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            """,
+            user_id,
+            org_id,
+            name,
+            key_prefix,
+            key_hash,
+            expires_at,
+        )
+        return dict(row)
+
+    async def validate_api_key(self, key_hash: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            """
+            SELECT ak.id AS api_key_id, ak.name AS api_key_name, ak.expires_at,
+                   u.id AS user_id, u.username, u.org_id, u.role, u.is_active
+            FROM api_keys ak
+            JOIN users u ON u.id = ak.user_id
+            WHERE ak.key_hash = $1
+              AND u.is_active = true
+              AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
+            """,
+            key_hash,
+        )
+        if row is None:
+            return None
+        result = dict(row)
+        # Fire-and-forget last_used_at update
+        import asyncio
+
+        async def _touch() -> None:
+            try:
+                await self.pool.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
+                    result["api_key_id"],
+                )
+            except Exception:
+                pass
+
+        asyncio.create_task(_touch())
+        return result
+
+    async def list_api_keys(self, user_id) -> list[dict]:
+        rows = await self.pool.fetch(
+            """
+            SELECT id, name, key_prefix, expires_at, last_used_at, created_at
+            FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC
+            """,
+            user_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def delete_api_key(self, api_key_id, user_id) -> bool:
+        result = await self.pool.execute(
+            "DELETE FROM api_keys WHERE id = $1 AND user_id = $2",
+            api_key_id,
+            user_id,
+        )
+        return result == "DELETE 1"
+
 
 def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
     def _fmt(dt: datetime | None) -> str | None:
@@ -1462,127 +1661,3 @@ def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
     }
-
-
-    async def migrate_ip_associations(self) -> dict[str, int]:
-        """One-time migration: associate existing IPs with known IP ranges and geo data."""
-        import ipaddress
-        from easm.pivot.handlers import GeoIpLookup
-
-        results = {"ip_range_associations": 0, "geo_enrichments": 0}
-
-        ip_ranges = await self.pool.fetch(
-            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
-        )
-        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
-
-        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
-
-        for ip_row in ips:
-            ip_value = ip_row["entity_value"]
-            ip_id = ip_row["id"]
-            attrs = ip_row["attributes"]
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs) if attrs else {}
-            elif attrs is None:
-                attrs = {}
-
-            for range_id, range_value in range_map.items():
-                try:
-                    network = ipaddress.ip_network(range_value, strict=False)
-                    if ipaddress.ip_address(ip_value) in network:
-                        await self.upsert_relationship(
-                            ip_row["org_id"],
-                            ip_id,
-                            range_id,
-                            "ip_in_range",
-                            "retroactive_migration",
-                        )
-                        results["ip_range_associations"] += 1
-                        break
-                except ValueError:
-                    continue
-
-            if "geo" not in attrs:
-                try:
-                    lookup = GeoIpLookup()
-                    result = lookup.lookup(ip_value)
-                    if result:
-                        attrs["geo"] = result.to_dict()
-                        await self.pool.execute(
-                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
-                            json.dumps(attrs), ip_id,
-                        )
-                        results["geo_enrichments"] += 1
-                except Exception:
-                    pass
-
-        logger.info("migration complete", extra=results)
-        return results
-
-    # ── User methods ──────────────────────────────────────────────
-
-    async def user_count(self) -> int:
-        return await self.pool.fetchval("SELECT COUNT(*) FROM users")
-
-    async def is_first_user(self) -> bool:
-        """Atomically check if no users exist. Use inside a transaction for bootstrap."""
-        return await self.pool.fetchval("SELECT COUNT(*) = 0 FROM users")
-
-    async def create_user(
-        self,
-        *,
-        org_id: str = "default",
-        username: str,
-        email: str | None = None,
-        display_name: str | None = None,
-        password_hash: str | None = None,
-        role: str = "admin",
-        sso_provider: str | None = None,
-        sso_provider_id: str | None = None,
-    ) -> dict:
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO users (org_id, username, email, display_name, password_hash, role, sso_provider, sso_provider_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
-            """,
-            org_id,
-            username,
-            email,
-            display_name,
-            password_hash,
-            role,
-            sso_provider,
-            sso_provider_id,
-        )
-        return dict(row)
-
-    async def get_user_by_username(self, org_id: str, username: str) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE org_id = $1 AND username = $2 AND is_active = true",
-            org_id,
-            username,
-        )
-        return dict(row) if row else None
-
-    async def get_user_by_id(self, user_id) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE id = $1 AND is_active = true",
-            user_id,
-        )
-        return dict(row) if row else None
-
-    async def get_user_by_sso(self, provider: str, provider_id: str) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE sso_provider = $1 AND sso_provider_id = $2 AND is_active = true",
-            provider,
-            provider_id,
-        )
-        return dict(row) if row else None
-
-    async def update_user_last_seen(self, user_id) -> None:
-        await self.pool.execute(
-            "UPDATE users SET updated_at = NOW() WHERE id = $1",
-            user_id,
-        )
