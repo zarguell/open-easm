@@ -6,10 +6,10 @@ const api = ky.create({
   timeout: 30_000,
   hooks: {
     afterResponse: [
-      (_request: Request, _options: any, response: Response) => {
+      ({response, request}) => {
         if (response.status === 401) {
           // Don't redirect on auth endpoint 401s (wrong password, etc.)
-          const url = new URL(_request.url);
+          const url = new URL(request.url);
           if (url.pathname.startsWith("/api/auth/")) {
             return;
           }
