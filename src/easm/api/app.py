@@ -12,10 +12,9 @@ from easm.api.routes import (
     alerts as alerts_route,
 )
 from easm.auth.middleware import auth_middleware
-# TODO: uncomment after Task 12
-# from easm.api.routes import (
-#     auth as auth_route,
-# )
+from easm.api.routes import (
+    auth as auth_route,
+)
 from easm.api.routes import (
     assets,
     certificates,
@@ -81,8 +80,7 @@ def create_app() -> FastAPI:
 
     app.middleware("http")(auth_middleware)
 
-    # TODO: uncomment after Task 12
-    # app.include_router(auth_route.router, prefix="/api")
+    app.include_router(auth_route.router, prefix="/api")
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
