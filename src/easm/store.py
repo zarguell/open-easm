@@ -1464,7 +1464,7 @@ def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
     }
 
 
-async def migrate_ip_associations(self) -> dict[str, int]:
+    async def migrate_ip_associations(self) -> dict[str, int]:
         """One-time migration: associate existing IPs with known IP ranges and geo data."""
         import ipaddress
         from easm.pivot.handlers import GeoIpLookup
@@ -1519,3 +1519,70 @@ async def migrate_ip_associations(self) -> dict[str, int]:
 
         logger.info("migration complete", extra=results)
         return results
+
+    # ── User methods ──────────────────────────────────────────────
+
+    async def user_count(self) -> int:
+        return await self.pool.fetchval("SELECT COUNT(*) FROM users")
+
+    async def is_first_user(self) -> bool:
+        """Atomically check if no users exist. Use inside a transaction for bootstrap."""
+        return await self.pool.fetchval("SELECT COUNT(*) = 0 FROM users")
+
+    async def create_user(
+        self,
+        *,
+        org_id: str = "default",
+        username: str,
+        email: str | None = None,
+        display_name: str | None = None,
+        password_hash: str | None = None,
+        role: str = "admin",
+        sso_provider: str | None = None,
+        sso_provider_id: str | None = None,
+    ) -> dict:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO users (org_id, username, email, display_name, password_hash, role, sso_provider, sso_provider_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+            """,
+            org_id,
+            username,
+            email,
+            display_name,
+            password_hash,
+            role,
+            sso_provider,
+            sso_provider_id,
+        )
+        return dict(row)
+
+    async def get_user_by_username(self, org_id: str, username: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE org_id = $1 AND username = $2 AND is_active = true",
+            org_id,
+            username,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_id(self, user_id) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE id = $1 AND is_active = true",
+            user_id,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_sso(self, provider: str, provider_id: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE sso_provider = $1 AND sso_provider_id = $2 AND is_active = true",
+            provider,
+            provider_id,
+        )
+        return dict(row) if row else None
+
+    async def update_user_last_seen(self, user_id) -> None:
+        await self.pool.execute(
+            "UPDATE users SET updated_at = NOW() WHERE id = $1",
+            user_id,
+        )
