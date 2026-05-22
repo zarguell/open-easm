@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router";
+import { Routes, Route, Navigate } from "react-router";
 import { AppShell } from "./components/layout/AppShell";
 import { DashboardView } from "./components/dashboard/DashboardView";
 import { AssetInventoryView } from "./components/assets/AssetInventoryView";
@@ -12,8 +12,25 @@ import { AlertsView } from "./components/alerts/AlertsView";
 import { FindingsView } from "./components/findings/FindingsView";
 import { GeoMap } from "./components/GeoMap";
 import { NotificationSettings } from "./components/settings/NotificationSettings";
+import { LoginPage } from "./components/auth/LoginPage";
+import { RegisterPage } from "./components/auth/RegisterPage";
+import { useAuth } from "./hooks/useAuth";
 
-export function App() {
+function ProtectedRoutes() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-canvas">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
   return (
     <Routes>
       <Route element={<AppShell />}>
@@ -30,6 +47,16 @@ export function App() {
         <Route path="notifications" element={<NotificationSettings />} />
         <Route path="geo" element={<GeoMap />} />
       </Route>
+    </Routes>
+  );
+}
+
+export function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/*" element={<ProtectedRoutes />} />
     </Routes>
   );
 }
