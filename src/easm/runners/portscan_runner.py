@@ -5,6 +5,7 @@ import re
 import uuid
 
 from easm.config import TargetConfig
+from easm.network_guard import resolve_and_validate
 from easm.runners.base import BaseRunner
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,28 @@ class PortScanRunner(BaseRunner):
     supports_manual_trigger = True
     is_continuous = False
 
+    async def _get_scan_targets(self, target: TargetConfig) -> list[str]:
+        """Get targets to scan: configured domains + discovered hostnames."""
+        targets = list(target.match_rules.domains)
+
+        if self.store and hasattr(self.store, "pool") and self.store.pool:
+            try:
+                rows = await self.store.pool.fetch(
+                    "SELECT entity_value FROM entities "
+                    "WHERE target_id = $1 AND entity_type = 'hostname' "
+                    "ORDER BY last_seen_at DESC",
+                    target.id,
+                )
+                existing = set(target.match_rules.domains)
+                for row in rows:
+                    hostname = row["entity_value"]
+                    if hostname not in existing:
+                        targets.append(hostname)
+            except Exception:
+                logger.debug("failed to query hostnames for portscan", exc_info=True)
+
+        return targets
+
     async def run_once(
         self, target: TargetConfig, trigger_type: str, run_id: uuid.UUID
     ) -> tuple[int, int, int]:
@@ -28,27 +51,53 @@ class PortScanRunner(BaseRunner):
         port_arg = ports if profile == "custom" else DEFAULT_PORTS
         inserted = deduped = errors = 0
 
-        for domain in target.match_rules.domains:
-            cmd = ["nmap", "-sV", "-p", port_arg, "--open", "-oG", "-", domain]
+        scan_targets = await self._get_scan_targets(target)
+        self._log(f"[portscan] scanning {len(scan_targets)} target(s)")
+
+        for hostname in scan_targets:
+            guard = resolve_and_validate(hostname)
+            if not guard.safe:
+                self._log(
+                    f"[portscan] skipping {hostname}: {guard.reason}"
+                )
+                logger.warning(
+                    "portscan blocked by network guard",
+                    extra={"hostname": hostname, "reason": guard.reason},
+                )
+                continue
+
+            cmd = [
+                "nmap", "-Pn", "-sV", "-p", port_arg,
+                "--open", "-oG", "-", hostname,
+            ]
+            self._log(f"[portscan] running: {' '.join(cmd)}")
             ok, stdout, stderr = await self._exec_subprocess(cmd, timeout=timeout)
             if not ok:
                 errors += 1
+                self._log(
+                    f"[portscan] failed for {hostname}: "
+                    f"{stderr[:200] if stderr else ''}"
+                )
                 logger.warning(
                     "nmap failed",
-                    extra={"domain": domain, "stderr": stderr[:200] if stderr else ""},
+                    extra={
+                        "hostname": hostname,
+                        "stderr": stderr[:200] if stderr else "",
+                    },
                 )
                 continue
 
             for line in stdout.split("\n"):
                 if not line.startswith("Host:") or "Ports:" not in line:
                     continue
-                # Parse grepable nmap output
                 parts = line.split("\t")
                 host = parts[0].replace("Host: ", "").strip()
-                # Remove (status) suffix like " (1)"
                 if " (" in host:
                     host = host.split(" (")[0].strip()
-                ports_str = parts[1].replace("Ports: ", "").strip() if len(parts) > 1 else ""
+                ports_str = (
+                    parts[1].replace("Ports: ", "").strip()
+                    if len(parts) > 1 else ""
+                )
                 open_ports = []
                 for p in ports_str.split(", "):
                     if not p:
@@ -63,7 +112,7 @@ class PortScanRunner(BaseRunner):
                             "service": m.group(3).strip(),
                         })
                 if open_ports:
-                    raw = {"hostname": domain, "ip": host, "ports": open_ports}
+                    raw = {"hostname": hostname, "ip": host, "ports": open_ports}
                     result = await self.store.insert_raw_event(
                         target.org_id, target.id, self.source_name, raw, run_id,
                     )

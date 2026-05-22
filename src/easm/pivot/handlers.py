@@ -16,20 +16,166 @@ import httpx
 import tldextract
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID, NameOID
 
 from easm.geoip import GeoIpLookup
+from easm.network_guard import resolve_and_validate
 from easm.vuln_enrichment import cpe_vuln_enrich
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Enrichment API key resolution (configured at startup)
+# ---------------------------------------------------------------------------
+import os as _os
+
+_enrichment_keys: dict[str, str] = {}
+
+
+def configure_enrichment_keys(config) -> None:
+    """Load enrichment API keys from config. Called once at startup."""
+    keys = getattr(config, "enrichment", None)
+    _enrichment_keys["shodan"] = _resolve(keys, "shodan", "SHODAN_API_KEY")
+    _enrichment_keys["abuseipdb"] = _resolve(keys, "abuseipdb", "ABUSEIPDB_API_KEY")
+    _enrichment_keys["greynoise"] = _resolve(keys, "greynoise", "GREYNOISE_API_KEY")
+    _enrichment_keys["censys_id"] = _resolve(keys, "censys_id", "CENSYS_API_ID")
+    _enrichment_keys["censys_secret"] = _resolve(keys, "censys_secret", "CENSYS_API_SECRET")
+    _enrichment_keys["securitytrails"] = _resolve(keys, "securitytrails", "SECURITYTRAILS_API_KEY")
+
+
+def _resolve(keys_obj, attr: str, env_var: str) -> str:
+    """Config value > environment variable > empty string."""
+    config_val = getattr(keys_obj, attr, None) if keys_obj else None
+    return config_val or _os.environ.get(env_var, "")
 
 # ---------------------------------------------------------------------------
 # Handler functions
 # ---------------------------------------------------------------------------
 
 
+def _certificate_to_raw_dict(cert: x509.Certificate, hostname: str, port: int) -> dict[str, Any]:
+    try:
+        subject_cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    except (IndexError, Exception):
+        subject_cn = ""
+    try:
+        issuer_cn = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    except (IndexError, Exception):
+        issuer_cn = ""
+    try:
+        issuer_org = cert.issuer.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)[0].value
+    except (IndexError, Exception):
+        issuer_org = ""
+
+    san_dns_names: list[str] = []
+    try:
+        san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_dns_names = san_ext.value.get_values_for_type(x509.DNSName)
+    except x509.ExtensionNotFound:
+        pass
+
+    public_key = cert.public_key()
+    public_key_algorithm = type(public_key).__name__
+    public_key_size_bits = getattr(public_key, "key_size", None)
+    public_key_curve = None
+    if isinstance(public_key, rsa.RSAPublicKey):
+        public_key_algorithm = "RSA"
+    elif isinstance(public_key, dsa.DSAPublicKey):
+        public_key_algorithm = "DSA"
+    elif isinstance(public_key, ec.EllipticCurvePublicKey):
+        public_key_algorithm = "EC"
+        public_key_curve = public_key.curve.name
+
+    signature_hash_algorithm = ""
+    if cert.signature_hash_algorithm is not None:
+        signature_hash_algorithm = cert.signature_hash_algorithm.name.lower()
+    signature_algorithm = getattr(
+        cert.signature_algorithm_oid,
+        "_name",
+        cert.signature_algorithm_oid.dotted_string,
+    )
+
+    is_ca = False
+    try:
+        basic_constraints = cert.extensions.get_extension_for_oid(ExtensionOID.BASIC_CONSTRAINTS)
+        is_ca = basic_constraints.value.ca
+    except x509.ExtensionNotFound:
+        pass
+
+    key_usage: list[str] = []
+    try:
+        usage = cert.extensions.get_extension_for_oid(ExtensionOID.KEY_USAGE).value
+        if usage.digital_signature:
+            key_usage.append("digital_signature")
+        if usage.content_commitment:
+            key_usage.append("content_commitment")
+        if usage.key_encipherment:
+            key_usage.append("key_encipherment")
+        if usage.data_encipherment:
+            key_usage.append("data_encipherment")
+        if usage.key_agreement:
+            key_usage.append("key_agreement")
+            if usage.encipher_only:
+                key_usage.append("encipher_only")
+            if usage.decipher_only:
+                key_usage.append("decipher_only")
+        if usage.key_cert_sign:
+            key_usage.append("key_cert_sign")
+        if usage.crl_sign:
+            key_usage.append("crl_sign")
+    except x509.ExtensionNotFound:
+        pass
+
+    extended_key_usage: list[str] = []
+    try:
+        usages = cert.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE).value
+        if ExtendedKeyUsageOID.SERVER_AUTH in usages:
+            extended_key_usage.append("server_auth")
+    except x509.ExtensionNotFound:
+        pass
+
+    cert_dict: dict[str, Any] = {
+        "subject_cn": subject_cn,
+        "issuer_cn": issuer_cn,
+        "issuer_org": issuer_org,
+        "serial_number": format(cert.serial_number, "x"),
+        "not_before": cert.not_valid_before_utc.isoformat(),
+        "not_after": cert.not_valid_after_utc.isoformat(),
+        "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(),
+        "san_dns_names": san_dns_names,
+        "public_key_algorithm": public_key_algorithm,
+        "public_key_size_bits": public_key_size_bits,
+        "public_key_curve": public_key_curve,
+        "signature_algorithm": signature_algorithm,
+        "signature_hash_algorithm": signature_hash_algorithm,
+        "is_ca": is_ca,
+        "key_usage": key_usage,
+        "extended_key_usage": extended_key_usage,
+    }
+    return {"hostname": hostname, "port": port, "cert": cert_dict}
+
+
 async def dns_resolve(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     results: list[dict[str, Any]] = []
+
+    # Resolve CNAME chain first — reveals SaaS hosting (github.io, netlify.app, etc.)
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            target = str(rdata.target).rstrip(".")
+            results.append({
+                "hostname": hostname,
+                "record_type": "CNAME",
+                "cname_target": target,
+            })
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Resolve A records — always needed for IP entity creation
     try:
         answers = dns.resolver.resolve(hostname, "A")
         for rdata in answers:
@@ -78,8 +224,44 @@ async def geoip_enrich(job: dict, pool) -> list[dict[str, Any]]:
     return [{"ip": ip, "geo": result.to_dict()}]
 
 
+async def ip_in_range(job: dict, pool) -> list[dict[str, Any]]:
+    """Check if an IP falls within any known IP range and create relationship."""
+    import ipaddress
+    ip = job["entity_value"]
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+    except ValueError:
+        return []
+    rows = await pool.fetch(
+        """
+        SELECT id, entity_value FROM entities
+        WHERE org_id = $1 AND target_id = $2 AND entity_type = 'ip_range'
+        """,
+        job["org_id"], job["target_id"],
+    )
+    results = []
+    for row in rows:
+        try:
+            network = ipaddress.ip_network(row["entity_value"], strict=False)
+            if ip_obj in network:
+                results.append({
+                    "source_ip": ip,
+                    "ip_range": row["entity_value"],
+                    "range_entity_id": str(row["id"]),
+                })
+        except ValueError:
+            continue
+    return results
+
+
 async def tls_cert_grab(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
+
+    guard = resolve_and_validate(hostname)
+    if not guard.safe:
+        logger.debug("TLS cert grab blocked for %s: %s", hostname, guard.reason)
+        return [{"hostname": hostname, "message": f"blocked by network guard: {guard.reason}"}]
+
     port = 443
     timeout = 10
     try:
@@ -93,35 +275,7 @@ async def tls_cert_grab(job: dict, pool) -> list[dict[str, Any]]:
     if not der_cert:
         return [{"hostname": hostname, "message": "no certificate returned"}]
     cert = x509.load_der_x509_certificate(der_cert)
-    try:
-        subject_cn = cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
-    except (IndexError, Exception):
-        subject_cn = ""
-    try:
-        issuer_cn = cert.issuer.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
-    except (IndexError, Exception):
-        issuer_cn = ""
-    try:
-        issuer_org = cert.issuer.get_attributes_for_oid(x509.oid.NameOID.ORGANIZATION_NAME)[0].value
-    except (IndexError, Exception):
-        issuer_org = ""
-    san_dns_names: list[str] = []
-    try:
-        san_ext = cert.extensions.get_extension_for_oid(
-            x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
-        san_dns_names = san_ext.value.get_values_for_type(x509.DNSName)
-    except x509.ExtensionNotFound:
-        pass
-    return [{
-        "hostname": hostname, "port": port, "cert": {
-            "subject_cn": subject_cn, "issuer_cn": issuer_cn,
-            "issuer_org": issuer_org, "serial_number": format(cert.serial_number, "x"),
-            "not_before": cert.not_valid_before_utc.isoformat(),
-            "not_after": cert.not_valid_after_utc.isoformat(),
-            "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(),
-            "san_dns_names": san_dns_names,
-        },
-    }]
+    return [_certificate_to_raw_dict(cert, hostname, port)]
 
 
 async def dns_mail_records(job: dict, pool) -> list[dict[str, Any]]:
@@ -170,17 +324,28 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
         if http_client is not None:
             certs = None
             for attempt in range(max_retries):
-                resp = await http_client.get(url)
+                try:
+                    resp = await http_client.get(url)
+                except (httpx.ReadTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning("crtsh request failed (%s) for %s, retrying %.1fs",
+                                   type(e).__name__, domain, wait)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait)
+                        continue
+                    break
                 if resp.status_code == 200:
                     certs = resp.json()
                     break
-                if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                if resp.status_code in retry_statuses:
                     retry_after = resp.headers.get("Retry-After")
                     wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
                     logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
                                    resp.status_code, domain, wait)
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait)
+                        continue
+                    break
                 resp.raise_for_status()
             if certs is None:
                 raise RuntimeError("crtsh request failed after all retries")
@@ -188,17 +353,28 @@ async def crtsh_search(job: dict, pool, *, http_client: httpx.AsyncClient | None
             async with httpx.AsyncClient(timeout=30.0) as client:
                 certs = None
                 for attempt in range(max_retries):
-                    resp = await client.get(url)
+                    try:
+                        resp = await client.get(url)
+                    except (httpx.ReadTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+                        wait = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning("crtsh request failed (%s) for %s, retrying %.1fs",
+                                       type(e).__name__, domain, wait)
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(wait)
+                            continue
+                        break
                     if resp.status_code == 200:
                         certs = resp.json()
                         break
-                    if resp.status_code in retry_statuses and attempt < max_retries - 1:
+                    if resp.status_code in retry_statuses:
                         retry_after = resp.headers.get("Retry-After")
                         wait = float(retry_after) if retry_after else (2 ** attempt) + random.uniform(0, 1)
                         logger.warning("crtsh rate limited (status %d) for %s, retrying %.1fs",
                                        resp.status_code, domain, wait)
-                        await asyncio.sleep(wait)
-                        continue
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(wait)
+                            continue
+                        break
                     resp.raise_for_status()
                 if certs is None:
                     raise RuntimeError("crtsh request failed after all retries")
@@ -239,23 +415,64 @@ async def subdomain_enum(job: dict, pool) -> list[dict[str, Any]]:
 async def subdomain_takeover(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     fingerprints = {
-        "github.io": "github_pages", "herokuapp.com": "heroku",
-        "s3.amazonaws.com": "aws_s3", "azurewebsites.net": "azure_app",
-        "cloudfront.net": "aws_cloudfront", "surge.sh": "surge",
-        "bitbucket.io": "bitbucket", "netlify.app": "netlify",
-        "firebaseapp.com": "firebase", "ghost.io": "ghost",
+        "github.io": "github_pages",
+        "herokuapp.com": "heroku",
+        "s3.amazonaws.com": "aws_s3",
+        "azurewebsites.net": "azure_app",
+        "cloudfront.net": "aws_cloudfront",
+        "surge.sh": "surge",
+        "bitbucket.io": "bitbucket",
+        "netlify.app": "netlify",
+        "firebaseapp.com": "firebase",
+        "ghost.io": "ghost",
+        "pantheon.io": "pantheon",
+        "myshopify.com": "shopify",
+        "readme.io": "readme",
+        "statuspage.io": "statuspage",
+        "freshdesk.com": "freshdesk",
+        "zendesk.com": "zendesk",
     }
-    vulnerable = [{"pattern": p, "service": s}
-                  for p, s in fingerprints.items() if p in hostname.lower()]
+
+    # Resolve CNAME to find the actual hosting target
+    cname_target = None
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            cname_target = str(rdata.target).rstrip(".")
+            break
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Check CNAME target against fingerprint database
+    vulnerable = []
+    if cname_target:
+        for pattern, service in fingerprints.items():
+            if cname_target.lower().endswith("." + pattern) or cname_target.lower() == pattern:
+                vulnerable.append({
+                    "pattern": pattern,
+                    "service": service,
+                    "cname_target": cname_target,
+                })
+
+    # Fallback: check hostname string itself (legacy behavior for direct SaaS subdomains)
+    if not vulnerable:
+        for pattern, service in fingerprints.items():
+            if pattern in hostname.lower():
+                vulnerable.append({"pattern": pattern, "service": service})
+
     return [{"hostname": hostname, "takeover_check": {
-        "fingerprint_matches": vulnerable, "takeover_risk": len(vulnerable) > 0,
+        "fingerprint_matches": vulnerable,
+        "takeover_risk": len(vulnerable) > 0,
+        "cname_target": cname_target,
     }}]
 
 
 async def passive_dns(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                       limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
-    api_key = ""  # configured via env/API in production
+    api_key = _enrichment_keys.get("securitytrails", "")
     if not api_key:
         return [{"domain": domain, "message": "no securitytrails api key"}]
     sem = limiters.securitytrails if limiters else None
@@ -299,11 +516,23 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
         await sem.acquire()
     try:
         if http_client is not None:
-            resp = await http_client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
-            resp.raise_for_status()
-            data = resp.json()
             try:
-                resp2 = await http_client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
+                resp = await http_client.get(
+                    f"https://rdap.db.ripe.net/registry/autnum/{numeric_asn}",
+                    follow_redirects=True
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 301:
+                    data = {}
+                else:
+                    raise
+            try:
+                resp2 = await http_client.get(
+                    f"https://rdap.arin.net/registry/autnum/{numeric_asn}",
+                    follow_redirects=True
+                )
                 resp2.raise_for_status()
                 data_arin = resp2.json()
             except Exception:
@@ -314,9 +543,18 @@ async def rdap_lookup(job: dict, pool, *, http_client: httpx.AsyncClient | None 
                         results.append({"asn": asn, "org": entity.get("handle", ""), "source": "ripe"})
         else:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(f"https://rdap.db.ripe.net/autnum/{numeric_asn}")
-                resp.raise_for_status()
-                data = resp.json()
+                try:
+                    resp = await client.get(
+                        f"https://rdap.db.ripe.net/registry/autnum/{numeric_asn}",
+                        follow_redirects=True
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 301:
+                        data = {}
+                    else:
+                        raise
                 try:
                     resp2 = await client.get(f"https://rdap.arin.net/registry/autnum/{numeric_asn}")
                     resp2.raise_for_status()
@@ -434,7 +672,7 @@ async def domain_rdap(job: dict, pool, *, http_client: httpx.AsyncClient | None 
 async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("shodan", "")
     sem = limiters.shodan if limiters else None
     if sem:
         await sem.acquire()
@@ -498,7 +736,7 @@ async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | Non
 async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("abuseipdb", "")
     if not api_key:
         return [{"ip": ip, "message": "no abuseipdb api key configured"}]
     sem = limiters.abuseipdb if limiters else None
@@ -538,7 +776,7 @@ async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | 
 async def greynoise_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("greynoise", "")
     headers = {"key": api_key} if api_key else {}
     sem = limiters.greynoise if limiters else None
     if sem:
@@ -607,7 +845,8 @@ async def urlscan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | No
 async def censys_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_id = api_secret = ""
+    api_id = _enrichment_keys.get("censys_id", "")
+    api_secret = _enrichment_keys.get("censys_secret", "")
     if not api_id or not api_secret:
         return [{"ip": ip, "message": "censys API credentials not configured"}]
     auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
@@ -707,6 +946,7 @@ PIVOT_HANDLER_REGISTRY: dict[str, Any] = {
     "censys_enrich": censys_enrich,
     "cpe_vuln_enrich": cpe_vuln_enrich,
     "ip_to_asn": ip_to_asn,
+    "ip_in_range": ip_in_range,
 }
 
 # Source name mapping (pivot_type → source_name) for use by worker

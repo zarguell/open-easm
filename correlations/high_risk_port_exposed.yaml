@@ -10,14 +10,14 @@ collect:
     field: entity_type
     value: ip
   - method: regex
-    field: entity_value
+    field: attributes.open_ports
     patterns:
-      - ".*:3389$"
-      - ".*:22$"
-      - ".*:23$"
-      - ".*:3306$"
-      - ".*:5432$"
-      - ".*:6379$"
+      - '"port": 3389'
+      - '"port": 22'
+      - '"port": 23'
+      - '"port": 3306'
+      - '"port": 5432'
+      - '"port": 6379'
 aggregation:
   field: entity_value
 headline: "High-risk port exposed: {entity_value}"

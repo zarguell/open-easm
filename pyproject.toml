@@ -7,6 +7,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",
     "apscheduler>=3.11.0",
     "alembic>=1.14.0",
     "pydantic>=2.10.0",
@@ -19,6 +20,12 @@ dependencies = [
     "httpx>=0.28.0",
     "cryptography>=44.0.0",
     "maxminddb>=2.6.0",
+    "playwright>=1.40.0",
+    "dnstwist>=20241218",
+    "procrastinate>=2.14.0",
+    "psycopg_pool>=3.2.0",
+    "reportlab>=4.0.0",
+    "openpyxl>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +55,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-ra --strict-config --strict-markers"
+markers = [
+    "unit: pure unit tests with no database or external process dependency",
+    "db: tests that require the Postgres test database",
+    "simulation: tests that exercise fixture-backed simulation mode",
+    "network_mocked: tests that exercise network code through mocked clients/transports",
+    "integration: multi-component tests that still avoid public target traffic",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/easm"]

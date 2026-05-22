@@ -31,7 +31,7 @@ class ScreenshotRunner(BaseRunner):
         inserted = deduped = errors = 0
 
         if _async_playwright is None:
-            logger.error("playwright not installed")
+            logger.warning("playwright not installed — skipping screenshots")
             return 0, 0, 1
 
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)

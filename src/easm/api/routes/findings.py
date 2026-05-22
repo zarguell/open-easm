@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
 
 from easm.api.deps import get_store
+from easm.api.sse import get_finding_stream
 from easm.correlation.rule import VALID_FINDING_STATUSES
+from easm.sla.models import compute_sla_status, compute_sla_summary
 from easm.store import Store
 
 router = APIRouter(tags=["findings"])
@@ -14,6 +19,46 @@ router = APIRouter(tags=["findings"])
 
 class PatchFindingRequest(BaseModel):
     status: str
+
+
+@router.get("/findings/stream")
+async def stream_findings(
+    target_id: str | None = Query(None),
+    risk: str | None = Query(None),
+) -> StreamingResponse:
+    """SSE endpoint for real-time finding notifications."""
+    stream = get_finding_stream()
+    queue = stream.subscribe()
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    finding = await asyncio.wait_for(queue.get(), timeout=30)
+                    # Apply filters if specified
+                    if target_id and finding.get("target_id") != target_id:
+                        continue
+                    if risk and finding.get("risk") != risk:
+                        continue
+                    data = json.dumps(finding, default=str)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            stream.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/findings/count")
@@ -36,15 +81,35 @@ async def list_findings(
     risk: str | None = Query(None),
     status: str | None = Query(None),
     rule_id: str | None = Query(None),
+    q: str | None = Query(None),
+    confidence_min: float | None = Query(None, description="Minimum confidence score (0-100)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     store: Store = Depends(get_store),
 ):
     results = await store.list_findings(
         target_id=target_id, risk=risk, status=status,
-        rule_id=rule_id, limit=limit, offset=offset,
+        rule_id=rule_id, q=q, confidence_min=confidence_min,
+        limit=limit, offset=offset,
     )
+    for f in results:
+        f["sla"] = compute_sla_status(
+            severity=f.get("risk", "info"),
+            first_seen_at=f.get("first_seen_at"),
+            finding_status=f.get("status", "open"),
+        ).to_dict()
     return {"findings": results}
+
+
+@router.get("/findings/sla-summary")
+async def sla_summary(
+    target_id: str | None = Query(None),
+    store: Store = Depends(get_store),
+):
+    findings = await store.list_findings(
+        target_id=target_id, limit=5000,
+    )
+    return compute_sla_summary(findings)
 
 
 @router.get("/findings/{finding_id}")

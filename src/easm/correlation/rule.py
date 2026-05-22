@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class CollectMethod(str, enum.Enum):
     EXACT = "exact"
     REGEX = "regex"
+    NOT_REGEX = "not_regex"
 
 
 class AnalysisMethod(str, enum.Enum):
@@ -90,6 +91,8 @@ class Finding(BaseModel):
     description: str | None = None
     entity_ids: list[str] = Field(default_factory=list)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    confidence_score: float | None = None
+    confidence_level: str | None = None
     status: str = "open"
 
     @field_validator("risk")

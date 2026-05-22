@@ -6,12 +6,16 @@ import logging
 import random
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import httpx
+import tldextract
 
 from easm.models import RunStatus
-from easm.store import Store
+from easm.runtime import get_runtime
+
+if TYPE_CHECKING:
+    from easm.store import Store
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,46 @@ def iterate_domains_x2(target: Any) -> list[str]:
     return items
 
 
+async def iterate_hostnames_x2(target: Any, pool: Any) -> list[str]:
+    """Produce ``https://<hostname>`` and ``http://<hostname>`` for discovered hostnames.
+
+    Queries the entities table for hostname-type entities belonging to the target.
+    Falls back to iterate_domains_x2 if pool is unavailable.
+    """
+    items: list[str] = []
+
+    # Always include configured domains
+    for domain in target.match_rules.domains:
+        items.append(f"https://{domain}")
+        items.append(f"http://{domain}")
+
+    # Add discovered hostnames from entities table
+    if pool is not None:
+        try:
+            rows = await pool.fetch(
+                "SELECT entity_value FROM entities "
+                "WHERE target_id = $1 AND entity_type = 'hostname' "
+                "ORDER BY last_seen_at DESC",
+                target.id,
+            )
+            existing: set[str] = set()
+            for domain in target.match_rules.domains:
+                existing.add(f"https://{domain}")
+                existing.add(f"http://{domain}")
+            for row in rows:
+                hostname = row["entity_value"]
+                https_url = f"https://{hostname}"
+                http_url = f"http://{hostname}"
+                if https_url not in existing:
+                    items.append(https_url)
+                if http_url not in existing:
+                    items.append(http_url)
+        except Exception:
+            pass  # Fall back to domains only
+
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Subprocess execution
 # ---------------------------------------------------------------------------
@@ -57,6 +101,9 @@ async def exec_subprocess(
     """
     if logger_fn is None:
         logger_fn = lambda _: None
+    runtime = get_runtime()
+    if runtime.is_simulation or not runtime.config.allow_subprocess:
+        return await runtime.exec_subprocess(cmd, timeout=timeout, logger_fn=logger_fn)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -81,6 +128,54 @@ async def exec_subprocess(
     if proc.returncode != 0:
         return False, stdout_text, stderr_text
     return True, stdout_text, ""
+
+
+# ---------------------------------------------------------------------------
+# Seed entity helpers
+# ---------------------------------------------------------------------------
+
+async def _ensure_seed_entities(
+    store: "Store",
+    target: Any,
+    org_id: str,
+    run_id: uuid.UUID,
+) -> dict[tuple[str, str], uuid.UUID]:
+    """Pre-create seed entities (configured domains/ASNs) for a target.
+
+    Returns a mapping of (entity_type, entity_value) -> entity_id for
+    all seed entities, so that discovered entities can reference them
+    as parents.
+    """
+    seed_map: dict[tuple[str, str], uuid.UUID] = {}
+
+    if not hasattr(target, "match_rules"):
+        return seed_map
+
+    # Ensure domain seeds exist
+    for domain in (target.match_rules.domains or []):
+        try:
+            eid, _ = await store.upsert_entity(
+                org_id, target.id, "domain", domain, {},
+                discovery_run_id=run_id,
+                parent_entity_id=None,  # seeds have no parent
+            )
+            seed_map[("domain", domain)] = eid
+        except Exception:
+            logger.debug("failed to create seed domain entity: %s", domain, exc_info=True)
+
+    # Ensure ASN seeds exist
+    for asn in (target.match_rules.asns or []):
+        try:
+            eid, _ = await store.upsert_entity(
+                org_id, target.id, "asn", asn, {},
+                discovery_run_id=run_id,
+                parent_entity_id=None,  # seeds have no parent
+            )
+            seed_map[("asn", asn)] = eid
+        except Exception:
+            logger.debug("failed to create seed ASN entity: %s", asn, exc_info=True)
+
+    return seed_map
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +209,15 @@ async def execute_runner(
     run_id = await store.create_run(
         target.id, source_name, trigger_type, org_id=target.org_id,
     )
+
+    seed_map: dict[tuple[str, str], uuid.UUID] = {}
+    try:
+        seed_map = await _ensure_seed_entities(store, target, target.org_id, run_id)
+    except Exception:
+        logger.debug("seed entity pre-creation failed", exc_info=True)
+
+    target._seed_map = seed_map
+
     start = datetime.now(UTC)
     await store.mark_run_started(run_id, start)
 
@@ -152,6 +256,43 @@ async def execute_runner(
         error_message=error_message,
         logs=log_text,
     )
+
+    # Post-run: process raw events through output_schema for legacy adapters
+    # that don't inline entity ingestion.  For adapters already using the
+    # _EntityIngestStoreProxy this is a harmless no-op (upsert is idempotent).
+    if status == RunStatus.COMPLETED.value:
+        try:
+            from easm.runners import get_all_runners as _get_all_runners
+
+            _runner_def = _get_all_runners().get(source_name)
+            if _runner_def and _runner_def.output_schema:
+                _raw_events = await store.pool.fetch(
+                    "SELECT id, raw FROM raw_events WHERE run_id = $1",
+                    run_id,
+                )
+                if _raw_events:
+                    _total_entities = 0
+                    for _re in _raw_events:
+                        try:
+                            await _ingest_entities(
+                                store, _runner_def.output_schema,
+                                _re["raw"], run_id,
+                                target.org_id, target.id, target=target,
+                                pool=store.pool, raw_event_id=_re["id"],
+                            )
+                            _ents, _ = _runner_def.output_schema(_re["raw"])
+                            _total_entities += len(_ents)
+                        except Exception:
+                            logger.debug(
+                                "post-run entity ingest failed",
+                                exc_info=True,
+                            )
+                    logger.info(
+                        "%s: processed %d raw events into %d entities via output_schema",
+                        source_name, len(_raw_events), _total_entities,
+                    )
+        except Exception:
+            logger.debug("output_schema post-processing failed", exc_info=True)
 
     # Compute run counters ------------------------------------------------
     try:
@@ -203,19 +344,103 @@ async def _ingest_entities(
     target: Any | None = None,
     pool: Any | None = None,
     raw_event_id: uuid.UUID | None = None,
+    seed_map: dict[tuple[str, str], uuid.UUID] | None = None,
 ) -> None:
+    ingest_pool = pool or getattr(store, "pool", None)
+    _effective_seed_map = seed_map or (getattr(target, "_seed_map", None) if target else None)
     try:
         entities, relationships = output_schema(raw)
     except Exception:
         logger.exception("output_schema failed", extra={"run_id": str(run_id)})
         return
+    discovery_session_id = None
+    try:
+        run_data = await store.get_run(run_id)
+        discovery_session_id = run_data.get("discovery_session_id") if run_data else None
+    except Exception:
+        logger.debug("failed to load discovery session for run", exc_info=True)
+
+    def _resolve_parent(ec_type: str, ec_value: str, ec_attrs: dict) -> uuid.UUID | None:
+        if not _effective_seed_map:
+            return None
+
+        if ec_type == "domain":
+            if ("domain", ec_value) in _effective_seed_map:
+                return None
+            return None
+
+        if ec_type == "asn":
+            return None
+
+        if ec_type == "hostname":
+            ext = tldextract.extract(ec_value)
+            registered_domain = f"{ext.domain}.{ext.suffix}"
+            parent_id = _effective_seed_map.get(("domain", registered_domain))
+            if parent_id:
+                return parent_id
+            for (etype, eval_), eid in _effective_seed_map.items():
+                if etype == "domain" and ec_value.endswith("." + eval_):
+                    return eid
+            return None
+
+        if ec_type == "certificate":
+            san = ec_attrs.get("san_dns_names", [])
+            cn = ec_attrs.get("common_name", "")
+            candidates: list[str] = []
+            if cn:
+                candidates.append(cn)
+            if isinstance(san, list):
+                candidates.extend(san)
+            for d in candidates:
+                ext = tldextract.extract(d)
+                rd = f"{ext.domain}.{ext.suffix}"
+                parent_id = _effective_seed_map.get(("domain", rd))
+                if parent_id:
+                    return parent_id
+                for (etype, eval_), eid in _effective_seed_map.items():
+                    if etype == "domain" and d.endswith("." + eval_):
+                        return eid
+            return None
+
+        return None
+
     for ec in entities:
         try:
+            _parent_id = _resolve_parent(ec.entity_type, ec.value, ec.attributes)
             entity_id, is_new = await store.upsert_entity(
                 org_id, target_id, ec.entity_type, ec.value,
                 ec.attributes, raw_event_id=raw_event_id,
+                discovery_session_id=discovery_session_id,
+                discovery_run_id=run_id,
+                parent_entity_id=_parent_id,
             )
-            if is_new and target is not None and pool is not None:
+            try:
+                source = ec.attributes.get("source") or "unknown"
+                target_domains = (
+                    list(target.match_rules.domains)
+                    if target is not None and hasattr(target, "match_rules")
+                    else []
+                )
+                target_asns = (
+                    list(target.match_rules.asns)
+                    if target is not None and hasattr(target, "match_rules")
+                    else []
+                )
+                await store.apply_asset_profile_for_entity(
+                    org_id=org_id,
+                    target_id=target_id,
+                    entity_id=entity_id,
+                    entity_type=ec.entity_type,
+                    entity_value=ec.value,
+                    source=source,
+                    raw_event_id=raw_event_id,
+                    target_domains=target_domains,
+                    target_asns=target_asns,
+                    summary=f"{source} observed {ec.entity_type} {ec.value}",
+                )
+            except Exception:
+                logger.debug("asset profile update failed", exc_info=True)
+            if is_new and target is not None and ingest_pool is not None:
                 try:
                     from easm.classify import classify_entity
                     classification = classify_entity(
@@ -232,9 +457,9 @@ async def _ingest_entities(
                         ),
                     )
                     if classification.classification != "org-owned":
-                        await pool.execute(
+                        await ingest_pool.execute(
                             "UPDATE entities SET attributes "
-                            "|| $1::jsonb WHERE id = $2",
+                            "= attributes || $1::jsonb WHERE id = $2",
                             json.dumps(classification.to_dict()),
                             entity_id,
                         )
@@ -243,11 +468,11 @@ async def _ingest_entities(
 
                 try:
                     from easm.pivot.resolver import PivotResolver
-                    resolver = PivotResolver(pool)
+                    resolver = PivotResolver(ingest_pool)
                     await resolver.check_and_enqueue(
                         target, ec.entity_type, ec.value, entity_id,
                         depth=1,
-                        discovery_session_id=run_id,
+                        discovery_session_id=discovery_session_id,
                     )
                 except Exception:
                     logger.debug(
@@ -305,6 +530,7 @@ async def standard_subprocess_run(
     inserted = deduped = errors = 0
     items = iterate_over(target)
     log(f"[runner] {source_name}: iterating over {len(items)} item(s)")
+    first_error: str | None = None
 
     for item in items:
         cmd = [binary] + [arg.replace("[item]", item) for arg in args_template]
@@ -313,6 +539,9 @@ async def standard_subprocess_run(
         ok, stdout, stderr = await exec_subprocess(cmd, timeout=timeout, logger_fn=log)
         if not ok:
             errors += 1
+            err_msg = stderr[:200] if stderr else "unknown error"
+            if first_error is None:
+                first_error = f"{binary} failed for {item}: {err_msg}"
             logger.warning(
                 "%s error for %s", binary, item,
                 extra={
@@ -351,9 +580,13 @@ async def standard_subprocess_run(
                 if output_schema:
                     await _ingest_entities(store, output_schema, raw, run_id,
                                           target.org_id, target.id, target=target,
+                                          pool=pool or getattr(store, "pool", None),
                                           raw_event_id=raw_event_id)
             else:
                 deduped += 1
+
+    if errors > 0 and inserted == 0 and first_error:
+        raise RuntimeError(first_error)
 
     return inserted, deduped, errors
 
@@ -503,6 +736,7 @@ async def standard_http_run(
                         if output_schema:
                             await _ingest_entities(store, output_schema, raw, run_id,
                                                   target.org_id, target.id, target=target,
+                                                  pool=pool or getattr(store, "pool", None),
                                                   raw_event_id=raw_event_id)
                     else:
                         deduped += 1

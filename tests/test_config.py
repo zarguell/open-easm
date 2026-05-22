@@ -28,6 +28,51 @@ def test_loads_valid_minimal_config(tmp_path: Path):
     assert config.targets[0].id == "test-target"
 
 
+def test_runtime_config_defaults_to_live(tmp_path):
+    path = make_yaml(tmp_path, {
+        "targets": [{
+            "id": "t",
+            "name": "T",
+            "type": "organization",
+            "enabled": False,
+            "match_rules": {},
+            "runners": {},
+        }],
+    })
+    config = load_config(path)
+    assert config.runtime.mode == "live"
+    assert config.runtime.allow_external_network is True
+    assert config.runtime.allow_subprocess is True
+    assert config.runtime.allow_active_scanning is False
+    assert config.runtime.refresh_kev_on_startup is True
+
+
+def test_runtime_config_parses_simulation_mode(tmp_path):
+    path = make_yaml(tmp_path, {
+        "runtime": {
+            "mode": "simulate",
+            "fixtures_path": "fixtures/simulation",
+            "allow_external_network": False,
+            "allow_subprocess": False,
+            "allow_active_scanning": False,
+            "refresh_kev_on_startup": False,
+        },
+        "targets": [{
+            "id": "offline",
+            "name": "Offline",
+            "type": "organization",
+            "enabled": True,
+            "match_rules": {"domains": ["example.invalid"]},
+            "runners": {},
+        }],
+    })
+    config = load_config(path)
+    assert config.runtime.mode == "simulate"
+    assert str(config.runtime.fixtures_path).endswith("fixtures/simulation")
+    assert config.runtime.allow_external_network is False
+    assert config.runtime.refresh_kev_on_startup is False
+
+
 def test_rejects_duplicate_target_ids(tmp_path: Path):
     cfg = make_yaml(tmp_path, {
         "targets": [

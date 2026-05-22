@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from easm.api.deps import get_store
+from easm.assets.lifecycle import compute_lifecycle_state
 from easm.store import Store
 
 router = APIRouter(tags=["entities"])
@@ -28,13 +31,17 @@ async def count_entities(
         conditions.append(f"entity_type = ${idx}")
         params.append(entity_type)
     if first_seen_since:
+        from datetime import datetime
+        dt = datetime.fromisoformat(first_seen_since.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"first_seen_at >= ${idx}")
-        params.append(first_seen_since)
+        params.append(dt)
     if last_seen_before:
+        from datetime import datetime
+        dt = datetime.fromisoformat(last_seen_before.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"last_seen_at <= ${idx}")
-        params.append(last_seen_before)
+        params.append(dt)
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     count = await store.pool.fetchval(
         f"SELECT COUNT(*) FROM entities {where}", *params,
@@ -70,7 +77,8 @@ async def list_entities(
     first_seen_since: str | None = Query(None),
     last_seen_before: str | None = Query(None),
     new_since_run_id: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    q: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=5000),
     cursor: str | None = Query(None),
     store: Store = Depends(get_store),
 ):
@@ -87,19 +95,36 @@ async def list_entities(
         conditions.append(f"entity_type = ${idx}")
         sql_params.append(entity_type)
     if first_seen_since:
+        from datetime import datetime
+        dt = datetime.fromisoformat(first_seen_since.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"first_seen_at >= ${idx}")
-        sql_params.append(first_seen_since)
+        sql_params.append(dt)
     if last_seen_before:
+        from datetime import datetime
+        dt = datetime.fromisoformat(last_seen_before.replace("Z", "+00:00"))
         idx += 1
         conditions.append(f"last_seen_at <= ${idx}")
-        sql_params.append(last_seen_before)
+        sql_params.append(dt)
+    if q:
+        idx += 1
+        conditions.append(
+            f"(entity_value ILIKE ${idx} OR entity_type ILIKE ${idx} OR attributes::text ILIKE ${idx})"
+        )
+        sql_params.append(f"%{q}%")
     if cursor:
         idx += 1
         conditions.append(f"id < ${idx}::uuid")
         sql_params.append(cursor)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    count_where = where
+    count_params = list(sql_params)
+    total_count = await store.pool.fetchval(
+        f"SELECT COUNT(*) FROM entities {count_where}", *count_params,
+    ) or 0
+
     idx += 1
     query = f"""
         SELECT id, org_id, target_id, entity_type, entity_value, attributes,
@@ -129,10 +154,11 @@ async def list_entities(
             "first_seen_at": r["first_seen_at"].isoformat(),
             "last_seen_at": r["last_seen_at"].isoformat(),
             "is_first_discovery": r["is_first_discovery"],
+            "lifecycle_state": compute_lifecycle_state(r["first_seen_at"]),
         })
 
     next_cursor = str(results[-1]["id"]) if has_more and results else None
-    return {"entities": entities_list, "next_cursor": next_cursor}
+    return {"entities": entities_list, "next_cursor": next_cursor, "total_count": total_count}
 
 
 @router.get("/entities/{entity_id}")
@@ -159,6 +185,7 @@ async def get_entity(entity_id: str, store: Store = Depends(get_store)):
         "first_seen_at": row["first_seen_at"].isoformat(),
         "last_seen_at": row["last_seen_at"].isoformat(),
         "is_first_discovery": row["is_first_discovery"],
+        "lifecycle_state": compute_lifecycle_state(row["first_seen_at"]),
         "raw_event_ids": [str(l["raw_event_id"]) for l in links],
     }
 
@@ -196,3 +223,17 @@ async def get_entity_relationships(entity_id: str, store: Store = Depends(get_st
             for r in rows
         ]
     }
+
+
+@router.get("/entities/{entity_id}/lineage")
+async def get_entity_lineage(
+    entity_id: UUID,
+    store: Store = Depends(get_store),
+):
+    lineage = await store.get_entity_lineage(entity_id, org_id="default")
+    if lineage is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Entity not found"},
+        )
+    return lineage

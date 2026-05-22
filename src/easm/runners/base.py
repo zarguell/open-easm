@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from easm.models import RunStatus
+from easm.runtime import get_runtime
 from easm.store import Store
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,11 @@ class BaseRunner(ABC):
     async def _exec_subprocess(
         self, cmd: list[str], *, timeout: int = 300
     ) -> tuple[bool, str, str]:
+        runtime = get_runtime()
+        if runtime.is_simulation or not runtime.config.allow_subprocess:
+            return await runtime.exec_subprocess(
+                cmd, timeout=timeout, logger_fn=self._log
+            )
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

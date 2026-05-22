@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -12,8 +13,22 @@ if config.config_file_name is not None:
 target_metadata = None
 
 
+def _database_url() -> str:
+    test_url = os.environ.get("EASM_TEST_DATABASE_DSN")
+    app_url = os.environ.get("EASM_DATABASE_DSN")
+    if test_url and app_url and test_url != app_url:
+        raise RuntimeError(
+            "EASM_DATABASE_DSN and EASM_TEST_DATABASE_DSN differ; refusing to "
+            "migrate one database and test another"
+        )
+    url = test_url or app_url or config.get_main_option("sqlalchemy.url")
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -31,8 +46,10 @@ def do_run_migrations(connection):
 
 
 async def run_async_migrations() -> None:
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = _database_url()
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

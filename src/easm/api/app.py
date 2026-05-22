@@ -10,16 +10,42 @@ from fastapi.responses import JSONResponse
 
 from easm.api.routes import (
     alerts as alerts_route,
-    config as config_route,
+)
+from easm.api.routes import (
+    assets,
+    certificates,
     entities,
     events,
-    findings as findings_route,
     graph,
     health,
     pivot_queue,
     runs,
     targets,
+    workers,
+)
+from easm.api.routes import (
+    config as config_route,
+)
+from easm.api.routes import (
+    findings as findings_route,
+)
+from easm.api.routes import (
     triage as triage_route,
+)
+from easm.api.routes import (
+    notifications as notifications_route,
+)
+from easm.api.routes import (
+    legal as legal_route,
+)
+from easm.api.routes import (
+    verification as verification_route,
+)
+from easm.api.routes import (
+    scoring as scoring_route,
+)
+from easm.api.routes import (
+    reports as reports_route,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,15 +88,23 @@ def create_app() -> FastAPI:
     app.include_router(config_route.router, prefix="/api")
     app.include_router(pivot_queue.router, prefix="/api")
     app.include_router(findings_route.router, prefix="/api")
+    app.include_router(certificates.router, prefix="/api")
+    app.include_router(assets.router, prefix="/api")
     app.include_router(alerts_route.router, prefix="/api")
+    app.include_router(notifications_route.router, prefix="/api")
+    app.include_router(legal_route.router, prefix="/api")
+    app.include_router(verification_route.router, prefix="/api")
+    app.include_router(scoring_route.router, prefix="/api")
+    app.include_router(reports_route.router, prefix="/api")
     app.include_router(triage_route.router)
+    app.include_router(workers.router)
 
     # Serve React SPA from ui/dist (production only)
     import os
     _static_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "dist")
     if os.path.isdir(_static_dir):
-        from fastapi.staticfiles import StaticFiles  # noqa: F401
         from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles  # noqa: F401
 
         @app.get("/ui/{full_path:path}")
         async def serve_spa(full_path: str):

@@ -4,6 +4,8 @@ import { ActiveRuns } from './ActiveRuns'
 import { RecentDiscoveries } from './RecentDiscoveries'
 import { QuickTrigger } from './QuickTrigger'
 import { Button } from '../shared/Button'
+import { AssetRiskOverview } from './AssetRiskOverview'
+import { NewThisWeek } from './NewThisWeek'
 
 export function DashboardView() {
   const { autoRefreshEnabled, toggleAutoRefresh, refetchInterval } = useAutoRefresh(false, 5000)
@@ -24,7 +26,9 @@ export function DashboardView() {
           <ActiveRuns refetchInterval={refetchInterval} />
           <RecentDiscoveries refetchInterval={refetchInterval} />
         </div>
-        <div>
+        <div className="space-y-6">
+          <NewThisWeek />
+          <AssetRiskOverview />
           <QuickTrigger />
         </div>
       </div>

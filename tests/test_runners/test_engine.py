@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from easm.runners.engine import standard_http_run
+from easm.config import TargetConfig
+from easm.runners.engine import standard_http_run, standard_subprocess_run
+from easm.runners.schemas import EntityCandidate
 
 
 def _make_target(domains=None):
@@ -16,11 +18,14 @@ def _make_target(domains=None):
 
 
 def _make_store(insert_result=True):
-    store = AsyncMock()
+    store = MagicMock()
     if insert_result is True:
-        store.insert_raw_event.return_value = uuid.uuid4()
+        store.insert_raw_event = AsyncMock(return_value=uuid.uuid4())
     else:
-        store.insert_raw_event.return_value = insert_result
+        store.insert_raw_event = AsyncMock(return_value=insert_result)
+    store.get_run = AsyncMock(return_value=None)
+    store.upsert_entity = AsyncMock()
+    store.upsert_relationship_by_value = AsyncMock()
     return store
 
 
@@ -40,6 +45,10 @@ def _make_http_client(responses):
 
     mock_http.get = _get
     return mock_http
+
+
+def _schema_with_hostname(raw):
+    return [EntityCandidate("hostname", raw["host"], {"source": "test"})], []
 
 
 @pytest.mark.asyncio
@@ -239,3 +248,97 @@ async def test_max_concurrent_1_does_not_use_gather():
             max_retries=1,
             max_concurrent=1,
         )
+
+
+@pytest.mark.asyncio
+async def test_subprocess_ingest_enqueues_pivots_with_store_pool():
+    target = TargetConfig(
+        id="test-target",
+        name="Test",
+        type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+        pivot={
+            "enabled": True,
+            "max_depth": 3,
+            "allowed_pivots": [
+                {"from": "hostname", "to": "ip", "via": "dns_resolve"},
+            ],
+        },
+    )
+    store = _make_store()
+    store.pool = MagicMock()
+    store.pool.execute = AsyncMock()
+    entity_id = uuid.uuid4()
+    store.upsert_entity.return_value = (entity_id, True)
+
+    with (
+        patch(
+            "easm.runners.engine.exec_subprocess",
+            AsyncMock(return_value=(True, '{"host":"app.example.com"}\n', "")),
+        ),
+        patch(
+            "easm.pivot.resolver.PivotResolver.check_and_enqueue",
+            AsyncMock(),
+        ) as enqueue,
+    ):
+        inserted, deduped, errors = await standard_subprocess_run(
+            target,
+            store,
+            "manual",
+            uuid.uuid4(),
+            lambda msg: None,
+            None,
+            source_name="test-subprocess",
+            binary="fake-subfinder",
+            args_template=["-d", "[item]"],
+            iterate_over=lambda t: t.match_rules.domains,
+            output_schema=_schema_with_hostname,
+        )
+
+    assert (inserted, deduped, errors) == (1, 0, 0)
+    enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sequential_http_ingest_enqueues_pivots_with_store_pool():
+    target = TargetConfig(
+        id="test-target",
+        name="Test",
+        type="org",
+        match_rules={"domains": ["example.com"]},
+        runners={},
+        pivot={
+            "enabled": True,
+            "max_depth": 3,
+            "allowed_pivots": [
+                {"from": "hostname", "to": "ip", "via": "dns_resolve"},
+            ],
+        },
+    )
+    store = _make_store()
+    store.pool = MagicMock()
+    store.pool.execute = AsyncMock()
+    entity_id = uuid.uuid4()
+    store.upsert_entity.return_value = (entity_id, True)
+
+    with patch(
+        "easm.pivot.resolver.PivotResolver.check_and_enqueue",
+        AsyncMock(),
+    ) as enqueue:
+        inserted, deduped, errors = await standard_http_run(
+            target,
+            store,
+            "manual",
+            uuid.uuid4(),
+            lambda msg: None,
+            _make_http_client([(200, '[{"host":"app.example.com"}]')]),
+            source_name="test-http",
+            url_template="https://example.invalid/[item]",
+            iterate_over=lambda t: t.match_rules.domains,
+            output_schema=_schema_with_hostname,
+            max_retries=1,
+        )
+
+    assert (inserted, deduped, errors) == (1, 0, 0)
+    enqueue.assert_awaited_once()

@@ -7,6 +7,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[impo
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_RUNNERS = {"nuclei", "portscan", "screenshot", "wappalyzer"}
+
 
 class Scheduler:
     def __init__(self) -> None:
@@ -23,13 +25,18 @@ class Scheduler:
         """Schedule a single runner for a target. Shared by setup_jobs and add_jobs_for_target."""
         if not runner_def.supports_schedule:
             return
-        schedule = cfg_dict.get("schedule", "0 0 * * *")
+        from easm.runtime import get_runtime
+        runtime = get_runtime()
+        if not runtime.config.allow_active_scanning and runner_name in ACTIVE_RUNNERS:
+            logger.info(
+                "skipping active runner schedule",
+                extra={"target_id": target.id, "runner": runner_name},
+            )
+            return
+        schedule = cfg_dict.get("schedule") or "0 0 * * *"
         job_id = f"{target.id}-{runner_name}"
         if self._scheduler.get_job(job_id) is not None:
             return
-
-        from easm.runners.engine import execute_runner
-        import httpx
 
         async def _run_job():
             active = await store.count_active_runs(target.id, runner_def.source_name)
@@ -40,18 +47,20 @@ class Scheduler:
                 )
                 return
 
-            http_client = httpx.AsyncClient(timeout=30.0)
-            try:
-                await execute_runner(
-                    runner_def.source_name,
-                    runner_def.run_fn,
-                    target,
-                    store,
-                    "scheduled",
-                    http_client=http_client,
-                )
-            finally:
-                await http_client.aclose()
+            from easm.tasks.runner import execute_runner
+
+            await execute_runner.configure(
+                priority=0,
+            ).defer_async(
+                runner_name=runner_name,
+                target_id=target.id,
+                trigger_type="scheduled",
+                org_id=getattr(target, "org_id", "default"),
+            )
+            logger.info(
+                "deferred runner task",
+                extra={"runner": runner_name, "target_id": target.id},
+            )
 
         self._scheduler.add_job(
             _run_job,
@@ -113,6 +122,44 @@ class Scheduler:
             replace_existing=True,
         )
         logger.info("scheduled kev refresh job")
+
+    def setup_epss_refresh(self, pool: Any) -> None:
+        from easm.epss import refresh_epss_cache
+
+        async def _refresh() -> None:
+            try:
+                await refresh_epss_cache(pool)
+            except Exception:
+                logger.exception("epss refresh failed")
+
+        self._scheduler.add_job(
+            _refresh,
+            "cron",
+            id="epss-refresh",
+            hour="5",
+            minute="0",
+            replace_existing=True,
+        )
+        logger.info("scheduled epss refresh job (daily at 05:00)")
+
+    def setup_janitor(self, store: Any) -> None:
+        async def _enqueue_janitor():
+            from easm.tasks.janitor import execute_janitor
+
+            await execute_janitor.configure(
+                queueing_lock="janitor-cleanup",
+                priority=10,
+            ).defer_async(org_id="default")
+
+        self._scheduler.add_job(
+            _enqueue_janitor,
+            "cron",
+            id="janitor-cleanup",
+            minute="0",
+            hour="*/1",
+            replace_existing=True,
+        )
+        logger.info("scheduled janitor cleanup job (hourly)")
 
     def _parse_cron(self, schedule: str) -> dict[str, str]:
         parts = schedule.split()

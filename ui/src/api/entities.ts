@@ -33,6 +33,7 @@ export interface Relationship {
 export interface EntitiesResponse {
   entities: Entity[]
   next_cursor: string | null
+  total_count: number
 }
 
 export function useEntities(params: {
@@ -40,6 +41,7 @@ export function useEntities(params: {
   entity_type?: string
   first_seen_since?: string
   last_seen_before?: string
+  q?: string
   limit?: number
   cursor?: string
 }) {
@@ -51,6 +53,7 @@ export function useEntities(params: {
       if (params.entity_type) searchParams.entity_type = params.entity_type
       if (params.first_seen_since) searchParams.first_seen_since = params.first_seen_since
       if (params.last_seen_before) searchParams.last_seen_before = params.last_seen_before
+      if (params.q) searchParams.q = params.q
       searchParams.limit = String(params.limit ?? 50)
       if (pageParam) searchParams.cursor = pageParam as string
       return api.get('entities', { searchParams }).json<EntitiesResponse>()
@@ -84,6 +87,39 @@ export function useEntityRelationships(entityId: string | null) {
     queryKey: ['entity-relationships', entityId],
     queryFn: () =>
       api.get(`entities/${entityId}/relationships`).json<{ relationships: Relationship[] }>(),
+    enabled: entityId !== null,
+  })
+}
+
+export interface LineageEntity {
+  id: string
+  entity_type: string
+  entity_value: string
+  discovered_by: string | null
+  first_seen_at: string | null
+}
+
+export interface LineageRelationship {
+  type: string
+  runner: string | null
+}
+
+export interface LineageAncestor {
+  entity: LineageEntity
+  connects_to_entity_id: string
+  relationship: LineageRelationship
+  depth: number
+}
+
+export interface LineageResponse {
+  entity: LineageEntity
+  ancestors: LineageAncestor[]
+}
+
+export function useEntityLineage(entityId: string | null) {
+  return useQuery({
+    queryKey: ['entity-lineage', entityId],
+    queryFn: () => api.get(`entities/${entityId}/lineage`).json<LineageResponse>(),
     enabled: entityId !== null,
   })
 }

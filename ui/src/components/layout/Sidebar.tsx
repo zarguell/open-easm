@@ -1,7 +1,9 @@
 import { useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
+  Database,
   List,
+  KeyRound,
   Share2,
   Play,
   Target,
@@ -12,6 +14,8 @@ import {
   PanelLeftOpen,
   Shield,
   X,
+  AlertTriangle,
+  Radio,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -23,12 +27,16 @@ interface SidebarProps {
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Database, label: "Assets", path: "/assets" },
   { icon: List, label: "Inventory", path: "/inventory" },
+  { icon: KeyRound, label: "Certificates", path: "/certificates" },
   { icon: Share2, label: "Graph Explorer", path: "/graph" },
   { icon: Play, label: "Runs", path: "/runs" },
   { icon: Target, label: "Targets & Pivots", path: "/targets" },
+  { icon: AlertTriangle, label: "Findings", path: "/findings" },
   { icon: Settings, label: "Config", path: "/config" },
   { icon: Bell, label: "Alerts", path: "/alerts" },
+  { icon: Radio, label: "Notifications", path: "/notifications" },
   { icon: Globe, label: "Geo Map", path: "/geo" },
 ] as const;
 

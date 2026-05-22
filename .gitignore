@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+config.yaml
 
 # UI
 ui/node_modules/
