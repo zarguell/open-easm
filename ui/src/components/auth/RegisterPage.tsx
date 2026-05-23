@@ -31,58 +31,61 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-canvas">
+    <div className="flex items-center justify-center min-h-screen bg-canvas px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm p-8 bg-surface rounded-lg border border-border shadow-lg"
+        className="flex flex-col gap-5 w-full max-w-[28rem] p-8 bg-canvas-elevated rounded-xl border border-hairline shadow-lg"
       >
-        <h1 className="text-2xl font-bold mb-6 text-center">Create Account</h1>
+        <h1 className="text-2xl font-bold text-center text-ink">Create Account</h1>
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">{error}</div>
+          <div className="p-3 bg-status-error/10 text-status-error rounded-md text-sm border border-status-error/20">{error}</div>
         )}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Username</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="block text-sm font-medium text-body">Username</label>
           <input
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            placeholder="Choose a username"
+            className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
             minLength={3}
             autoFocus
           />
         </div>
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Password</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="block text-sm font-medium text-body">Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            placeholder="Create a password (min 8 chars)"
+            className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
             minLength={8}
           />
         </div>
-        <div className="mb-6">
-          <label className="block text-sm font-medium mb-1">Confirm Password</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="block text-sm font-medium text-body">Confirm Password</label>
           <input
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded bg-canvas"
+            placeholder="Confirm your password"
+            className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
             minLength={8}
           />
         </div>
         <button
           type="submit"
-          className="w-full py-2 px-4 bg-primary text-white rounded font-medium hover:opacity-90"
+          className="w-full py-2.5 px-4 bg-primary text-on-primary rounded-md font-semibold hover:opacity-90 transition-opacity"
         >
           Create Account
         </button>
-        <p className="mt-4 text-center text-sm text-muted">
+        <p className="text-center text-sm text-mute">
           Already have an account?{" "}
-          <Link to="/ui/login" className="text-primary underline">
+          <Link to="/ui/login" className="text-primary hover:text-primary-soft underline transition-colors">
             Sign In
           </Link>
         </p>

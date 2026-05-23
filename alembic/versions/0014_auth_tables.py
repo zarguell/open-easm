@@ -33,7 +33,7 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.ForeignKeyConstraint(["org_id"], ["organizations(id)"]),
+        sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
         sa.UniqueConstraint("org_id", "username", name="uq_users_org_username"),
         sa.CheckConstraint(
             "role IN ('admin', 'viewer')",
@@ -46,7 +46,7 @@ def upgrade() -> None:
     op.create_table(
         "api_keys",
         sa.Column("id", sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users(id)", ondelete="CASCADE"), nullable=False),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("org_id", sa.Text(), nullable=False, server_default="default"),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("key_prefix", sa.Text(), nullable=False),
@@ -54,6 +54,7 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
     )
     op.create_index("idx_api_keys_user_id", "api_keys", ["user_id"])
     op.create_index("idx_api_keys_key_hash", "api_keys", ["key_hash"])
