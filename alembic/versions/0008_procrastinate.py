@@ -37,8 +37,12 @@ def upgrade() -> None:
 
     import psycopg
 
-    with psycopg.connect(dsn) as conn:
-        conn.execute(schema_sql)
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        try:
+            conn.execute(schema_sql)
+        except psycopg.errors.DuplicateObject:
+            pass
+
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pivot_jobs_cooldown
             ON procrastinate_jobs (

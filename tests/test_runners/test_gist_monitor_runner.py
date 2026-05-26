@@ -32,7 +32,7 @@ async def test_gist_monitor_runner_returns_tuple_of_ints():
         match_rules={"domains": ["example.com"], "keywords": ["acme"]},
         runners={"gist_monitor": {"enabled": True, "schedule": "*/30 * * * *", "args": {"timeout_seconds": 60}}},
     )
-    inserted, deduped, errors = await runner.run_once(target, "scheduled", uuid.uuid7())
+    inserted, deduped, errors = await runner.run_once(target, "scheduled", uuid.uuid4())
     assert isinstance(inserted, int)
     assert isinstance(deduped, int)
     assert isinstance(errors, int)

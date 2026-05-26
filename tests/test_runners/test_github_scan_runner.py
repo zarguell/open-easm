@@ -41,10 +41,10 @@ def mock_store():
     store = MagicMock()
     store.pool = AsyncMock()
     store.insert_raw_event = AsyncMock(return_value=True)
-    store.create_run = AsyncMock(return_value=uuid.uuid7())
+    store.create_run = AsyncMock(return_value=uuid.uuid4())
     store.mark_run_started = AsyncMock()
     store.mark_run_finished = AsyncMock()
-    store.get_run = AsyncMock(return_value={"discovery_session_id": str(uuid.uuid7())})
+    store.get_run = AsyncMock(return_value={"discovery_session_id": str(uuid.uuid4())})
     return store
 
 
@@ -59,7 +59,7 @@ async def test_github_scan_run_once_with_gitleaks(target, mock_store):
         "",
     ))
 
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted >= 1
@@ -81,7 +81,7 @@ async def test_github_scan_run_once_gitleaks_not_found(target, mock_store):
     runner = GithubScanRunner(mock_store, http_client=mock_client)
     runner._exec_subprocess = AsyncMock(return_value=(False, "", "binary not found: gitleaks"))
 
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted == 0
@@ -109,7 +109,7 @@ async def test_github_scan_run_once_github_search_api(target, mock_store):
 
     runner = GithubScanRunner(mock_store, http_client=mock_client)
     runner._exec_subprocess = AsyncMock(return_value=(False, "", "binary not found: gitleaks"))
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted >= 1

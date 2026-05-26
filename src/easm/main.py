@@ -11,9 +11,10 @@ from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
-from easm.api.deps import set_config, set_scheduler, set_store
+from easm.api.deps import set_auth_config, set_config, set_scheduler, set_store
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
+from easm.pivot.handlers import configure_enrichment_keys
 from easm.db import close_pool, create_pool
 from easm.queue import app as procrastinate_app
 from easm.runtime import configure_runtime
@@ -55,6 +56,10 @@ async def main() -> None:
         sys.exit(1)
 
     configure_runtime(config.runtime)
+    configure_enrichment_keys(config)
+
+    from easm.notifications.dispatcher import configure_notifications
+    configure_notifications(config.notifications)
     logger.info(
         "configured runtime",
         mode=config.runtime.mode,
@@ -115,6 +120,7 @@ async def main() -> None:
     scheduler = Scheduler()
 
     set_config(config)
+    set_auth_config(config.auth)
     set_store(store)
     set_scheduler(scheduler)
 
@@ -141,6 +147,16 @@ async def main() -> None:
             logger.exception("initial kev cache population failed (non-fatal)")
 
         scheduler.setup_kev_refresh(pool)
+
+        # EPSS cache refresh
+        try:
+            from easm.epss import refresh_epss_cache
+            epss_count = await asyncio.wait_for(refresh_epss_cache(pool), timeout=120)
+            logger.info("initial epss cache populated", count=epss_count)
+        except Exception:
+            logger.exception("initial epss cache population failed (non-fatal)")
+
+        scheduler.setup_epss_refresh(pool)
 
     app = create_app()
 

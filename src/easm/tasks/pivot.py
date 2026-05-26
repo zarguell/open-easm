@@ -56,8 +56,8 @@ async def execute_pivot(
     from easm.pivot.handlers import (
         PIVOT_HANDLER_REGISTRY,
         PIVOT_SOURCE_NAMES,
-        get_default_limiters,
     )
+    from easm.rate_limiter import get_default_limiters
     from easm.pivot.resolver import PivotResolver
     from easm.runners.schemas import OUTPUT_SCHEMAS
     from easm.runtime import get_runtime
@@ -160,6 +160,10 @@ async def execute_pivot(
                                 ec.attributes, raw_event_id=re_id,
                                 discovery_session_id=discovery_session_id,
                                 discovery_run_id=run_id,
+                                discovery_pivot_id=job_id,
+                                parent_entity_id=(
+                                    uuid.UUID(entity_id) if entity_id else None
+                                ),
                             )
 
                             if ec.entity_type == "ip":

@@ -31,7 +31,7 @@ async def test_stackoverflow_runner_returns_tuple_of_ints():
         match_rules={"domains": ["example.com"], "keywords": ["acme"]},
         runners={"stackoverflow_monitor": {"enabled": True, "schedule": "0 */2 * * *", "args": {"timeout_seconds": 60}}},
     )
-    inserted, deduped, errors = await runner.run_once(target, "scheduled", uuid.uuid7())
+    inserted, deduped, errors = await runner.run_once(target, "scheduled", uuid.uuid4())
     assert isinstance(inserted, int)
     assert isinstance(deduped, int)
     assert isinstance(errors, int)

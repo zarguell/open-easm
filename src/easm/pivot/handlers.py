@@ -20,9 +20,34 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID, NameOID
 
 from easm.geoip import GeoIpLookup
+from easm.network_guard import resolve_and_validate
 from easm.vuln_enrichment import cpe_vuln_enrich
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Enrichment API key resolution (configured at startup)
+# ---------------------------------------------------------------------------
+import os as _os
+
+_enrichment_keys: dict[str, str] = {}
+
+
+def configure_enrichment_keys(config) -> None:
+    """Load enrichment API keys from config. Called once at startup."""
+    keys = getattr(config, "enrichment", None)
+    _enrichment_keys["shodan"] = _resolve(keys, "shodan", "SHODAN_API_KEY")
+    _enrichment_keys["abuseipdb"] = _resolve(keys, "abuseipdb", "ABUSEIPDB_API_KEY")
+    _enrichment_keys["greynoise"] = _resolve(keys, "greynoise", "GREYNOISE_API_KEY")
+    _enrichment_keys["censys_id"] = _resolve(keys, "censys_id", "CENSYS_API_ID")
+    _enrichment_keys["censys_secret"] = _resolve(keys, "censys_secret", "CENSYS_API_SECRET")
+    _enrichment_keys["securitytrails"] = _resolve(keys, "securitytrails", "SECURITYTRAILS_API_KEY")
+
+
+def _resolve(keys_obj, attr: str, env_var: str) -> str:
+    """Config value > environment variable > empty string."""
+    config_val = getattr(keys_obj, attr, None) if keys_obj else None
+    return config_val or _os.environ.get(env_var, "")
 
 # ---------------------------------------------------------------------------
 # Handler functions
@@ -134,6 +159,23 @@ def _certificate_to_raw_dict(cert: x509.Certificate, hostname: str, port: int) -
 async def dns_resolve(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     results: list[dict[str, Any]] = []
+
+    # Resolve CNAME chain first — reveals SaaS hosting (github.io, netlify.app, etc.)
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            target = str(rdata.target).rstrip(".")
+            results.append({
+                "hostname": hostname,
+                "record_type": "CNAME",
+                "cname_target": target,
+            })
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Resolve A records — always needed for IP entity creation
     try:
         answers = dns.resolver.resolve(hostname, "A")
         for rdata in answers:
@@ -214,6 +256,12 @@ async def ip_in_range(job: dict, pool) -> list[dict[str, Any]]:
 
 async def tls_cert_grab(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
+
+    guard = resolve_and_validate(hostname)
+    if not guard.safe:
+        logger.debug("TLS cert grab blocked for %s: %s", hostname, guard.reason)
+        return [{"hostname": hostname, "message": f"blocked by network guard: {guard.reason}"}]
+
     port = 443
     timeout = 10
     try:
@@ -367,23 +415,64 @@ async def subdomain_enum(job: dict, pool) -> list[dict[str, Any]]:
 async def subdomain_takeover(job: dict, pool) -> list[dict[str, Any]]:
     hostname = job["entity_value"]
     fingerprints = {
-        "github.io": "github_pages", "herokuapp.com": "heroku",
-        "s3.amazonaws.com": "aws_s3", "azurewebsites.net": "azure_app",
-        "cloudfront.net": "aws_cloudfront", "surge.sh": "surge",
-        "bitbucket.io": "bitbucket", "netlify.app": "netlify",
-        "firebaseapp.com": "firebase", "ghost.io": "ghost",
+        "github.io": "github_pages",
+        "herokuapp.com": "heroku",
+        "s3.amazonaws.com": "aws_s3",
+        "azurewebsites.net": "azure_app",
+        "cloudfront.net": "aws_cloudfront",
+        "surge.sh": "surge",
+        "bitbucket.io": "bitbucket",
+        "netlify.app": "netlify",
+        "firebaseapp.com": "firebase",
+        "ghost.io": "ghost",
+        "pantheon.io": "pantheon",
+        "myshopify.com": "shopify",
+        "readme.io": "readme",
+        "statuspage.io": "statuspage",
+        "freshdesk.com": "freshdesk",
+        "zendesk.com": "zendesk",
     }
-    vulnerable = [{"pattern": p, "service": s}
-                  for p, s in fingerprints.items() if p in hostname.lower()]
+
+    # Resolve CNAME to find the actual hosting target
+    cname_target = None
+    try:
+        cname_answers = dns.resolver.resolve(hostname, "CNAME")
+        for rdata in cname_answers:
+            cname_target = str(rdata.target).rstrip(".")
+            break
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        pass
+    except Exception:
+        pass
+
+    # Check CNAME target against fingerprint database
+    vulnerable = []
+    if cname_target:
+        for pattern, service in fingerprints.items():
+            if cname_target.lower().endswith("." + pattern) or cname_target.lower() == pattern:
+                vulnerable.append({
+                    "pattern": pattern,
+                    "service": service,
+                    "cname_target": cname_target,
+                })
+
+    # Fallback: check hostname string itself (legacy behavior for direct SaaS subdomains)
+    if not vulnerable:
+        for pattern, service in fingerprints.items():
+            if pattern in hostname.lower():
+                vulnerable.append({"pattern": pattern, "service": service})
+
     return [{"hostname": hostname, "takeover_check": {
-        "fingerprint_matches": vulnerable, "takeover_risk": len(vulnerable) > 0,
+        "fingerprint_matches": vulnerable,
+        "takeover_risk": len(vulnerable) > 0,
+        "cname_target": cname_target,
     }}]
 
 
 async def passive_dns(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                       limiters=None) -> list[dict[str, Any]]:
     domain = job["entity_value"]
-    api_key = ""  # configured via env/API in production
+    api_key = _enrichment_keys.get("securitytrails", "")
     if not api_key:
         return [{"domain": domain, "message": "no securitytrails api key"}]
     sem = limiters.securitytrails if limiters else None
@@ -583,7 +672,7 @@ async def domain_rdap(job: dict, pool, *, http_client: httpx.AsyncClient | None 
 async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("shodan", "")
     sem = limiters.shodan if limiters else None
     if sem:
         await sem.acquire()
@@ -647,7 +736,7 @@ async def shodan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | Non
 async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("abuseipdb", "")
     if not api_key:
         return [{"ip": ip, "message": "no abuseipdb api key configured"}]
     sem = limiters.abuseipdb if limiters else None
@@ -687,7 +776,7 @@ async def abuseipdb_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | 
 async def greynoise_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                            limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_key = ""
+    api_key = _enrichment_keys.get("greynoise", "")
     headers = {"key": api_key} if api_key else {}
     sem = limiters.greynoise if limiters else None
     if sem:
@@ -756,7 +845,8 @@ async def urlscan_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | No
 async def censys_enrich(job: dict, pool, *, http_client: httpx.AsyncClient | None = None,
                         limiters=None) -> list[dict[str, Any]]:
     ip = job["entity_value"]
-    api_id = api_secret = ""
+    api_id = _enrichment_keys.get("censys_id", "")
+    api_secret = _enrichment_keys.get("censys_secret", "")
     if not api_id or not api_secret:
         return [{"ip": ip, "message": "censys API credentials not configured"}]
     auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()

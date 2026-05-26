@@ -6,6 +6,7 @@ import os
 
 from easm.config import load_config
 from easm.db import close_pool, create_pool
+from easm.pivot.handlers import configure_enrichment_keys
 from easm.queue import app as procrastinate_app
 from easm.store import Store
 from easm.worker_context import set_context
@@ -20,6 +21,7 @@ async def run_worker() -> None:
         raise RuntimeError("EASM_DATABASE_DSN is required")
 
     config = load_config("config.yaml")
+    configure_enrichment_keys(config)
     pool = await create_pool(dsn)
     store = Store(pool)
 

@@ -5,12 +5,42 @@ from typing import Any
 
 import asyncpg
 
+from easm.assets.lifecycle import compute_lifecycle_state
+from easm.correlation.location import infer_finding_location
 from easm.correlation.rule import (
     AnalysisMethod,
     CollectMethod,
     CorrelationRule,
     Finding,
 )
+
+
+def _compute_finding_confidence(matched_entities: list[dict]) -> tuple[float, str]:
+    """Compute aggregate confidence from matched entities.
+
+    Uses the average confidence score of all matched entities.
+    Falls back to (0.0, "unknown") if no entity has confidence data.
+    """
+    scores = []
+    for entity in matched_entities:
+        attrs = entity.get("attributes", {})
+        profile = attrs.get("asset_profile", {}) if isinstance(attrs, dict) else {}
+        conf = profile.get("confidence", {}) if isinstance(profile, dict) else {}
+        score = conf.get("score")
+        if score is not None:
+            scores.append(float(score))
+
+    if not scores:
+        return (0.0, "unknown")
+
+    avg = sum(scores) / len(scores)
+    if avg >= 80:
+        level = "high"
+    elif avg >= 50:
+        level = "medium"
+    else:
+        level = "low"
+    return (round(avg, 1), level)
 
 
 class CorrelationEngine:
@@ -27,11 +57,15 @@ class CorrelationEngine:
             if not self._analyze(entities, rule):
                 continue
             first = entities[0]
+            entity_lifecycle = compute_lifecycle_state(first.get("first_seen_at"))
+            novelty_factor = {"new": 1.5, "recent": 1.2, "stable": 1.0}.get(entity_lifecycle, 1.0)
             placeholder_data = dict(first) | (first.get("attributes") or {})
             try:
                 headline = rule.headline.format(**placeholder_data)
             except KeyError:
                 headline = rule.headline
+            conf_score, conf_level = _compute_finding_confidence(entities)
+            location = infer_finding_location(rule.id, headline, entities)
             findings.append(
                 Finding(
                     org_id=org_id,
@@ -40,7 +74,14 @@ class CorrelationEngine:
                     risk=rule.meta.risk,
                     headline=headline,
                     entity_ids=[e["id"] for e in entities],
-                    evidence={"matched_entities": entities},
+                    evidence={
+                        "matched_entities": entities,
+                        "novelty_factor": novelty_factor,
+                        "lifecycle_state": entity_lifecycle,
+                        "location": location.to_dict(),
+                    },
+                    confidence_score=conf_score,
+                    confidence_level=conf_level,
                 )
             )
         return findings
@@ -70,6 +111,14 @@ class CorrelationEngine:
                 field_sql = self._field_to_sql(cond.field)
                 conditions.append(f"{field_sql} = ${idx}")
                 params.append(cond.value)
+            elif cond.method == CollectMethod.NOT_REGEX:
+                field_sql = self._field_to_sql(cond.field)
+                sub_conditions = []
+                for pattern in cond.patterns or []:
+                    idx += 1
+                    sub_conditions.append(f"{field_sql} !~ ${idx}::text")
+                    params.append(pattern)
+                conditions.append(f"({' AND '.join(sub_conditions)})")
             elif cond.method == CollectMethod.REGEX:
                 field_sql = self._field_to_sql(cond.field)
                 sub_conditions = []
@@ -80,7 +129,8 @@ class CorrelationEngine:
                 conditions.append(f"({' OR '.join(sub_conditions)})")
 
         query = f"""
-            SELECT id, org_id, target_id, entity_type, entity_value, attributes
+            SELECT id, org_id, target_id, entity_type, entity_value, attributes,
+                   first_seen_at
             FROM entities
             WHERE {' AND '.join(conditions)}
         """
@@ -99,6 +149,7 @@ class CorrelationEngine:
                     if isinstance(r["attributes"], str)
                     else (dict(r["attributes"]) if r["attributes"] else {})
                 ),
+                "first_seen_at": r["first_seen_at"],
             }
             for r in rows
         ]

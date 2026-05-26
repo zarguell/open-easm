@@ -9,7 +9,7 @@ import pytest_asyncio
 
 @pytest_asyncio.fixture
 async def sample_run(db_pool):
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     await db_pool.execute(
         "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",
         run_id, "t1", "manual", "manual", "running",
@@ -30,7 +30,7 @@ async def test_healthz_returns_binaries():
 
 @pytest.mark.asyncio
 async def test_gc_deletes_old_raw_events(db_pool, sample_run):
-    old_id = uuid.uuid7()
+    old_id = uuid.uuid4()
     await db_pool.execute(
         """INSERT INTO raw_events (id, org_id, target_id, source, raw, event_hash, run_id, collected_at)
            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)""",
@@ -38,7 +38,7 @@ async def test_gc_deletes_old_raw_events(db_pool, sample_run):
         datetime.now(timezone.utc) - timedelta(days=200),
     )
 
-    fresh_id = uuid.uuid7()
+    fresh_id = uuid.uuid4()
     await db_pool.execute(
         """INSERT INTO raw_events (id, org_id, target_id, source, raw, event_hash, run_id, collected_at)
            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)""",

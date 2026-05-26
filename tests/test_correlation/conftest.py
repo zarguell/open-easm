@@ -8,8 +8,8 @@ import pytest_asyncio
 
 @pytest_asyncio.fixture
 async def seed_entities(db_pool):
-    run_id = uuid.uuid7()
-    event_id = uuid.uuid7()
+    run_id = uuid.uuid4()
+    event_id = uuid.uuid4()
     async with db_pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO runs (id, target_id, source, trigger_type, status) VALUES ($1, $2, $3, $4, $5)",

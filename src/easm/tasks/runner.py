@@ -45,7 +45,7 @@ async def execute_runner(
     http_client = runtime.make_http_client()
 
     try:
-        inserted, deduped, errors = await run_fn(
+        run_id = await run_fn(
             runner_def.source_name,
             runner_def.run_fn,
             target,
@@ -53,6 +53,6 @@ async def execute_runner(
             trigger_type,
             http_client=http_client,
         )
-        return {"inserted": inserted, "deduped": deduped, "errors": errors}
+        return {"run_id": str(run_id)}
     finally:
         await http_client.aclose()

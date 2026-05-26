@@ -1,21 +1,24 @@
 from __future__ import annotations
 
+import enum
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from easm.auth.config import AuthConfig
+
 VALID_RUNNER_NAMES = {
     "certstream", "subfinder", "asnmap", "crtsh", "dnstwist", "certspotter",
-    "cloud_enum", "paste_monitor", "gist_monitor", "stackoverflow_monitor", "discord_monitor",
+    "cloud_enum", "paste_monitor", "gist_monitor", "stackoverflow_monitor",
     "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
     "wappalyzer", "screenshot", "portscan", "nuclei",
 }
 SCHEDULABLE_RUNNERS = {
     "subfinder", "asnmap", "crtsh", "dnstwist", "certspotter", "cloud_enum",
-    "paste_monitor", "gist_monitor", "stackoverflow_monitor", "discord_monitor",
+    "paste_monitor", "gist_monitor", "stackoverflow_monitor",
     "github_scan", "breach_monitor",
     "commoncrawl", "searchengine",
     "wappalyzer", "screenshot", "portscan", "nuclei",
@@ -46,6 +49,9 @@ class RunnerConfig(BaseModel):
     hibp_api_key: str | None = None
     dehashed_api_key: str | None = None
     dehashed_email: str | None = None
+    google_api_key: str | None = None
+    google_cx: str | None = None
+    bing_api_key: str | None = None
 
     @field_validator("schedule")
     @classmethod
@@ -201,11 +207,74 @@ class RuntimeConfig(BaseModel):
     refresh_kev_on_startup: bool = True
 
 
+class EnrichmentKeys(BaseModel):
+    """API keys for external enrichment services. Also settable via environment variables."""
+    shodan: str | None = None
+    abuseipdb: str | None = None
+    greynoise: str | None = None
+    censys_id: str | None = None
+    censys_secret: str | None = None
+    securitytrails: str | None = None
+    dehashed: str | None = None
+    urlscan: str | None = None
+
+
+class NotificationChannelType(str, enum.Enum):
+    WEBHOOK = "webhook"
+    SLACK = "slack"
+    SMTP = "smtp"
+    PAGERDUTY = "pagerduty"
+
+
+class WebhookChannelConfig(BaseModel):
+    url: str
+    secret: str | None = None
+    method: str = "POST"
+
+
+class SlackChannelConfig(BaseModel):
+    url: str
+
+
+class SmtpChannelConfig(BaseModel):
+    host: str
+    port: int = 587
+    username: str | None = None
+    password: str | None = None
+    use_tls: bool = True
+    from_address: str
+    to_addresses: list[str]
+
+
+class PagerdutyChannelConfig(BaseModel):
+    routing_key: str
+    severity: str = "warning"
+
+
+class NotificationChannel(BaseModel):
+    name: str
+    type: NotificationChannelType
+    enabled: bool = True
+    min_severity: str = "medium"
+    webhook: WebhookChannelConfig | None = None
+    slack: SlackChannelConfig | None = None
+    smtp: SmtpChannelConfig | None = None
+    pagerduty: PagerdutyChannelConfig | None = None
+
+
+class NotificationConfig(BaseModel):
+    channels: list[NotificationChannel] = Field(default_factory=list)
+    rate_limit_per_hour: int = 100
+
+
 class Config(BaseModel):
     targets: list[TargetConfig]
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     saas_providers: SaasProviderConfig = Field(default_factory=SaasProviderConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
+    enrichment: EnrichmentKeys = Field(default_factory=EnrichmentKeys)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     @model_validator(mode="after")
     def validate_targets(self) -> Config:

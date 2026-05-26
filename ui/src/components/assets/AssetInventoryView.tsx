@@ -48,6 +48,7 @@ export function AssetInventoryView() {
 
   const { data, isLoading, isError, error, refetch, isFetching } = useAssetInventory(inventoryParams)
   const assets = (data?.assets ?? []) as AssetInventoryItem[]
+  const totalCount = data?.total_count ?? assets.length
 
   const filteredAssets = useMemo(() => {
     if (!debouncedSearch.trim()) return assets
@@ -81,7 +82,7 @@ export function AssetInventoryView() {
           </Button>
         </div>
 
-        <AssetExportPanel eligibleCount={eligibleCount} totalCount={assets.length} />
+        <AssetExportPanel eligibleCount={eligibleCount} totalCount={totalCount} />
 
         <div className="grid gap-3 rounded-md border border-hairline bg-canvas p-4 lg:grid-cols-[minmax(260px,1fr)_160px_160px_170px]">
           <SearchInput
@@ -128,7 +129,7 @@ export function AssetInventoryView() {
               <Filter className="h-4 w-4" />
               <span>
                 Showing <span className="font-mono text-ink">{filteredAssets.length}</span> of{' '}
-                <span className="font-mono text-ink">{assets.length}</span>
+                <span className="font-mono text-ink">{totalCount}</span>
               </span>
             </div>
           </div>

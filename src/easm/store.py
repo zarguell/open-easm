@@ -5,6 +5,8 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+
+from easm._compat import uuid7
 from typing import Any, cast
 
 import asyncpg
@@ -90,7 +92,7 @@ class Store:
         scheduled_for: datetime | None = None,
         org_id: str = "default",
     ) -> uuid.UUID:
-        discovery_session_id = uuid.uuid7()
+        discovery_session_id = uuid7()
         row = await self.pool.fetchrow(
             """
             INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for, discovery_session_id)
@@ -374,6 +376,7 @@ class Store:
         discovery_session_id: uuid.UUID | None = None,
         discovery_run_id: uuid.UUID | None = None,
         discovery_pivot_id: uuid.UUID | None = None,
+        parent_entity_id: uuid.UUID | None = None,
     ) -> tuple[uuid.UUID, bool]:
         normalized_value = normalize_entity_value(entity_type, entity_value)
         new_attributes.setdefault("triage_state", "discovered")
@@ -383,16 +386,19 @@ class Store:
             """
             INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
                                   first_seen_at, last_seen_at, is_first_discovery,
-                                  discovery_session_id, discovery_run_id, discovery_pivot_id)
-            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8)
+                                  discovery_session_id, discovery_run_id, discovery_pivot_id,
+                                  parent_entity_id)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8, $9)
             ON CONFLICT (org_id, target_id, entity_type, entity_value) DO UPDATE
             SET last_seen_at = NOW(),
-                is_first_discovery = FALSE
+                is_first_discovery = FALSE,
+                parent_entity_id = COALESCE(entities.parent_entity_id, EXCLUDED.parent_entity_id)
             RETURNING id, (xmax = 0) AS is_insert
             """,
             org_id, target_id, entity_type, normalized_value,
             json.dumps(new_attributes),
             discovery_session_id, discovery_run_id, discovery_pivot_id,
+            parent_entity_id,
         )
 
         entity_id = result["id"]
@@ -535,21 +541,17 @@ class Store:
         entity_id: uuid.UUID,
     ) -> list[dict[str, Any]]:
         try:
-            findings = await self.list_findings(target_id=target_id, limit=200)
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """SELECT * FROM findings
+                       WHERE target_id = $1 AND $2 = ANY(entity_ids)
+                       ORDER BY created_at DESC""",
+                    target_id, str(entity_id),
+                )
+            return [dict(r) for r in rows]
         except Exception:
             logger.debug("finding lookup skipped for asset profile", exc_info=True)
             return []
-
-        entity_id_text = str(entity_id)
-        matched: list[dict[str, Any]] = []
-        for finding in findings:
-            entity_ids = finding.get("entity_ids") or []
-            if entity_id_text not in [str(value) for value in entity_ids]:
-                continue
-            if "severity" not in finding and "risk" in finding:
-                finding = {**finding, "severity": finding.get("risk")}
-            matched.append(finding)
-        return matched
 
     async def upsert_relationship(
         self,
@@ -722,8 +724,8 @@ class Store:
         limit: int = 100,
         offset: int = 0,
         org_id: str = "default",
-    ) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 500))
+    ) -> dict[str, Any]:
+        limit = max(1, min(limit, 5000))
         offset = max(0, offset)
         conditions = ["org_id = $1", "attributes ? 'asset_profile'"]
         params: list[Any] = [org_id]
@@ -757,6 +759,7 @@ class Store:
         rows = await self.pool.fetch(
             f"""
             SELECT
+                COUNT(*) OVER() AS total_count,
                 id AS entity_id,
                 org_id,
                 target_id,
@@ -793,7 +796,9 @@ class Store:
             """,
             *params,
         )
-        return [_row_to_asset_inventory_dict(row) for row in rows]
+        total_count = rows[0]["total_count"] if rows else 0
+        entities = [_row_to_asset_inventory_dict(row) for row in rows]
+        return {"entities": entities, "total_count": total_count}
 
     async def get_triage_inbox(
         self,
@@ -862,6 +867,105 @@ class Store:
             org_id, target_id,
         )
         return [dict(r) for r in rows]
+
+    async def get_entity_lineage(
+        self,
+        entity_id: uuid.UUID,
+        org_id: str,
+    ) -> dict[str, Any] | None:
+        """Trace the discovery lineage of an entity via the parent_entity_id chain.
+
+        Each entity points to its immediate parent (the entity that led to its
+        discovery). Walking this chain produces an exact, non-heuristic lineage
+        from any asset back to its configured seed domain/ASN.
+
+        Returns ``None`` if the entity does not exist in the given org.
+        """
+        # Fetch the target entity
+        target = await self.pool.fetchrow(
+            """
+            SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                   e.parent_entity_id, e.discovery_run_id,
+                   r.source AS run_source
+            FROM entities e
+            LEFT JOIN runs r ON r.id = e.discovery_run_id
+            WHERE e.id = $1 AND e.org_id = $2
+            """,
+            entity_id, org_id,
+        )
+        if target is None:
+            return None
+
+        entity_info: dict[str, Any] = {
+            "id": str(target["id"]),
+            "entity_type": target["entity_type"],
+            "entity_value": target["entity_value"],
+            "discovered_by": target["run_source"],
+            "first_seen_at": (
+                target["first_seen_at"].isoformat()
+                if target["first_seen_at"] else None
+            ),
+        }
+
+        ancestors: list[dict[str, Any]] = []
+        child_id: uuid.UUID | None = target["id"]
+        current_parent_id = target["parent_entity_id"]
+        depth = 0
+        max_depth = 20
+
+        while current_parent_id is not None and depth < max_depth:
+            # Fetch parent entity + relationship type to child
+            parent = await self.pool.fetchrow(
+                """
+                SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
+                       e.parent_entity_id, e.discovery_run_id,
+                       r.source AS run_source,
+                       rel.relationship_type,
+                       rel.runner AS relationship_runner
+                FROM entities e
+                LEFT JOIN runs r ON r.id = e.discovery_run_id
+                LEFT JOIN LATERAL (
+                    SELECT relationship_type, runner
+                    FROM entity_relationships
+                    WHERE (source_entity_id = e.id AND target_entity_id = $2)
+                       OR (target_entity_id = e.id AND source_entity_id = $2)
+                    LIMIT 1
+                ) rel ON TRUE
+                WHERE e.id = $1
+                """,
+                current_parent_id,
+                child_id,
+            )
+            if parent is None:
+                break
+
+            depth += 1
+            ancestors.append({
+                "entity": {
+                    "id": str(parent["id"]),
+                    "entity_type": parent["entity_type"],
+                    "entity_value": parent["entity_value"],
+                    "discovered_by": parent["run_source"],
+                    "first_seen_at": (
+                        parent["first_seen_at"].isoformat()
+                        if parent["first_seen_at"] else None
+                    ),
+                },
+                "connects_to_entity_id": str(child_id),
+                "relationship": {
+                    "type": (
+                        parent["relationship_type"]
+                        if parent["relationship_type"] else "discovered_by"
+                    ),
+                    "runner": parent["relationship_runner"],
+                },
+                "depth": depth,
+            })
+
+            child_id = parent["id"]
+            current_parent_id = parent["parent_entity_id"]
+
+        return {"entity": entity_info, "ancestors": ancestors}
 
     # ── Pivot methods ─────────────────────────────────────────────────
     # (removed — pivots now use Procrastinate tasks)
@@ -994,8 +1098,9 @@ class Store:
         row = await self.pool.fetchrow(
             """
             INSERT INTO findings (org_id, target_id, rule_id, risk, headline, description,
-                                  entity_ids, evidence, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9)
+                                  entity_ids, evidence, status,
+                                  confidence_score, confidence_level)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9, $10, $11)
             RETURNING id
             """,
             finding.org_id,
@@ -1005,8 +1110,10 @@ class Store:
             finding.headline,
             finding.description,
             [uuid.UUID(eid) for eid in finding.entity_ids],
-            json.dumps(finding.evidence),
+            json.dumps(finding.evidence, default=str),
             finding.status,
+            finding.confidence_score,
+            finding.confidence_level,
         )
         assert row is not None
         return cast(uuid.UUID, row["id"])
@@ -1017,6 +1124,8 @@ class Store:
         risk: str | None = None,
         status: str | None = None,
         rule_id: str | None = None,
+        q: str | None = None,
+        confidence_min: float | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -1040,13 +1149,23 @@ class Store:
             idx += 1
             conditions.append(f"rule_id = ${idx}")
             params.append(rule_id)
+        if confidence_min is not None:
+            idx += 1
+            conditions.append(f"confidence_score >= ${idx}")
+            params.append(confidence_min)
+        if q:
+            idx += 1
+            conditions.append(f"(headline ILIKE ${idx} OR rule_id ILIKE ${idx})")
+            params.append(f"%{q}%")
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         idx += 1
         idx += 1
         query = f"""
             SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                   entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+                   entity_ids, evidence, status,
+                   confidence_score, confidence_level,
+                   first_seen_at, last_seen_at, created_at
             FROM findings
             {where}
             ORDER BY risk DESC, created_at DESC
@@ -1059,7 +1178,9 @@ class Store:
     async def get_finding(self, finding_id: uuid.UUID) -> dict[str, Any] | None:
         row = await self.pool.fetchrow(
             """SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                      entity_ids, evidence, status, first_seen_at, last_seen_at, created_at
+                      entity_ids, evidence, status,
+                      confidence_score, confidence_level,
+                      first_seen_at, last_seen_at, created_at
                FROM findings WHERE id = $1""",
             finding_id,
         )
@@ -1114,7 +1235,15 @@ class Store:
             SELECT
                 id AS entity_id,
                 attributes #>> '{{certificate_profile,fingerprint_sha256}}' AS fingerprint_sha256,
-                attributes #>> '{{certificate_profile,subject,common_name}}' AS subject_cn,
+                COALESCE(
+                    attributes #>> '{{certificate_profile,subject,common_name}}',
+                    (attributes #> '{{certificate_profile,san_dns_names}}'->>0)
+                ) AS subject_cn,
+                attributes #> '{{certificate_profile,san_dns_names}}' AS san_dns_names,
+                CASE
+                    WHEN attributes #>> '{{certificate_profile,subject,common_name}}' IS NOT NULL THEN 'cn'
+                    ELSE 'san'
+                END AS subject_source,
                 attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization,
                 attributes #>> '{{certificate_profile,not_before}}' AS not_before,
                 attributes #>> '{{certificate_profile,not_after}}' AS not_after,
@@ -1187,6 +1316,205 @@ class Store:
                 summary[summary_key][value] = summary[summary_key].get(value, 0) + 1
         return summary
 
+    async def migrate_ip_associations(self) -> dict[str, int]:
+        """One-time migration: associate existing IPs with known IP ranges and geo data."""
+        import ipaddress
+        from easm.pivot.handlers import GeoIpLookup
+
+        results = {"ip_range_associations": 0, "geo_enrichments": 0}
+
+        ip_ranges = await self.pool.fetch(
+            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
+        )
+        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
+
+        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
+
+        for ip_row in ips:
+            ip_value = ip_row["entity_value"]
+            ip_id = ip_row["id"]
+            attrs = ip_row["attributes"]
+            if isinstance(attrs, str):
+                attrs = json.loads(attrs) if attrs else {}
+            elif attrs is None:
+                attrs = {}
+
+            for range_id, range_value in range_map.items():
+                try:
+                    network = ipaddress.ip_network(range_value, strict=False)
+                    if ipaddress.ip_address(ip_value) in network:
+                        await self.upsert_relationship(
+                            ip_row["org_id"],
+                            ip_id,
+                            range_id,
+                            "ip_in_range",
+                            "retroactive_migration",
+                        )
+                        results["ip_range_associations"] += 1
+                        break
+                except ValueError:
+                    continue
+
+            if "geo" not in attrs:
+                try:
+                    lookup = GeoIpLookup()
+                    result = lookup.lookup(ip_value)
+                    if result:
+                        attrs["geo"] = result.to_dict()
+                        await self.pool.execute(
+                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
+                            json.dumps(attrs), ip_id,
+                        )
+                        results["geo_enrichments"] += 1
+                except Exception:
+                    pass
+
+        logger.info("migration complete", extra=results)
+        return results
+
+    # ── User methods ──────────────────────────────────────────────
+
+    async def user_count(self) -> int:
+        return await self.pool.fetchval("SELECT COUNT(*) FROM users")
+
+    async def is_first_user(self) -> bool:
+        """Atomically check if no users exist. Use inside a transaction for bootstrap."""
+        return await self.pool.fetchval("SELECT COUNT(*) = 0 FROM users")
+
+    async def create_user(
+        self,
+        *,
+        org_id: str = "default",
+        username: str,
+        email: str | None = None,
+        display_name: str | None = None,
+        password_hash: str | None = None,
+        role: str = "admin",
+        sso_provider: str | None = None,
+        sso_provider_id: str | None = None,
+    ) -> dict:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO users (org_id, username, email, display_name, password_hash, role, sso_provider, sso_provider_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+            """,
+            org_id,
+            username,
+            email,
+            display_name,
+            password_hash,
+            role,
+            sso_provider,
+            sso_provider_id,
+        )
+        return dict(row)
+
+    async def get_user_by_username(self, org_id: str, username: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE org_id = $1 AND username = $2 AND is_active = true",
+            org_id,
+            username,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_id(self, user_id) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE id = $1 AND is_active = true",
+            user_id,
+        )
+        return dict(row) if row else None
+
+    async def get_user_by_sso(self, provider: str, provider_id: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            "SELECT * FROM users WHERE sso_provider = $1 AND sso_provider_id = $2 AND is_active = true",
+            provider,
+            provider_id,
+        )
+        return dict(row) if row else None
+
+    async def update_user_last_seen(self, user_id) -> None:
+        await self.pool.execute(
+            "UPDATE users SET updated_at = NOW() WHERE id = $1",
+            user_id,
+        )
+
+    # ── API key methods ───────────────────────────────────────────
+
+    async def create_api_key(
+        self,
+        *,
+        user_id,
+        org_id: str = "default",
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        expires_at=None,
+    ) -> dict:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO api_keys (user_id, org_id, name, key_prefix, key_hash, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            """,
+            user_id,
+            org_id,
+            name,
+            key_prefix,
+            key_hash,
+            expires_at,
+        )
+        return dict(row)
+
+    async def validate_api_key(self, key_hash: str) -> dict | None:
+        row = await self.pool.fetchrow(
+            """
+            SELECT ak.id AS api_key_id, ak.name AS api_key_name, ak.expires_at,
+                   u.id AS user_id, u.username, u.org_id, u.role, u.is_active
+            FROM api_keys ak
+            JOIN users u ON u.id = ak.user_id
+            WHERE ak.key_hash = $1
+              AND u.is_active = true
+              AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
+            """,
+            key_hash,
+        )
+        if row is None:
+            return None
+        result = dict(row)
+        # Fire-and-forget last_used_at update
+        import asyncio
+
+        async def _touch() -> None:
+            try:
+                await self.pool.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
+                    result["api_key_id"],
+                )
+            except Exception:
+                pass
+
+        asyncio.create_task(_touch())
+        return result
+
+    async def list_api_keys(self, user_id) -> list[dict]:
+        rows = await self.pool.fetch(
+            """
+            SELECT id, name, key_prefix, expires_at, last_used_at, created_at
+            FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC
+            """,
+            user_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def delete_api_key(self, api_key_id, user_id) -> bool:
+        result = await self.pool.execute(
+            "DELETE FROM api_keys WHERE id = $1 AND user_id = $2",
+            api_key_id,
+            user_id,
+        )
+        return result == "DELETE 1"
+
 
 def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
     def _fmt(dt: datetime | None) -> str | None:
@@ -1203,6 +1531,8 @@ def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
         "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
         "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
         "status": row["status"],
+        "confidence_score": row.get("confidence_score"),
+        "confidence_level": row.get("confidence_level"),
         "first_seen_at": _fmt(row["first_seen_at"]),
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
@@ -1277,6 +1607,8 @@ def _row_to_certificate_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
         "risk": row["risk"],
         "reasons": _json_field(row["reasons"], []),
         "strength": row["strength"],
+        "san_dns_names": _json_field(row["san_dns_names"], []),
+        "subject_source": row["subject_source"],
     }
 
 
@@ -1329,60 +1661,3 @@ def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
         "last_seen_at": _fmt(row["last_seen_at"]),
         "created_at": _fmt(row["created_at"]),
     }
-
-
-async def migrate_ip_associations(self) -> dict[str, int]:
-        """One-time migration: associate existing IPs with known IP ranges and geo data."""
-        import ipaddress
-        from easm.pivot.handlers import GeoIpLookup
-
-        results = {"ip_range_associations": 0, "geo_enrichments": 0}
-
-        ip_ranges = await self.pool.fetch(
-            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
-        )
-        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
-
-        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
-
-        for ip_row in ips:
-            ip_value = ip_row["entity_value"]
-            ip_id = ip_row["id"]
-            attrs = ip_row["attributes"]
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs) if attrs else {}
-            elif attrs is None:
-                attrs = {}
-
-            for range_id, range_value in range_map.items():
-                try:
-                    network = ipaddress.ip_network(range_value, strict=False)
-                    if ipaddress.ip_address(ip_value) in network:
-                        await self.upsert_relationship(
-                            ip_row["org_id"],
-                            ip_id,
-                            range_id,
-                            "ip_in_range",
-                            "retroactive_migration",
-                        )
-                        results["ip_range_associations"] += 1
-                        break
-                except ValueError:
-                    continue
-
-            if "geo" not in attrs:
-                try:
-                    lookup = GeoIpLookup()
-                    result = lookup.lookup(ip_value)
-                    if result:
-                        attrs["geo"] = result.to_dict()
-                        await self.pool.execute(
-                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
-                            json.dumps(attrs), ip_id,
-                        )
-                        results["geo_enrichments"] += 1
-                except Exception:
-                    pass
-
-        logger.info("migration complete", extra=results)
-        return results

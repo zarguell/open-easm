@@ -79,7 +79,7 @@ def dnstwist(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
     rels: list[RelationshipCandidate] = []
     if original:
         rels.append(RelationshipCandidate(
-            "domain", n, "domain", normalize_entity_value("domain", original), "lookalike_of"))
+            "domain", normalize_entity_value("domain", original), "domain", n, "discovered_lookalike"))
     return entities, rels
 
 
@@ -108,7 +108,7 @@ def crtsh(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]
     for name in all_names:
         nn = normalize_entity_value("domain", name)
         entities.append(EntityCandidate("domain", nn, {"source": "crtsh"}))
-        rels.append(RelationshipCandidate("certificate", cert_val, "domain", nn, "issued_for"))
+        rels.append(RelationshipCandidate("domain", nn, "certificate", cert_val, "cert_discovered"))
         rels.append(RelationshipCandidate(
             "domain", nn, "certificate", cert_val, "reverse_of", "correlation"))
     return entities, rels
@@ -228,7 +228,7 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
     for name in all_names:
         nn = normalize_entity_value("domain", name)
         entities.append(EntityCandidate("domain", nn, {"source": "certstream"}))
-        rels.append(RelationshipCandidate("certificate", cert_val, "domain", nn, "issued_for"))
+        rels.append(RelationshipCandidate("domain", nn, "certificate", cert_val, "cert_discovered"))
         rels.append(RelationshipCandidate(
             "domain", nn, "certificate", cert_val, "reverse_of", "correlation"))
     return entities, rels
@@ -236,13 +236,35 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
 
 def dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     hostname = raw.get("hostname", "").strip()
+    record_type = raw.get("record_type", "A")
+
+    if record_type == "CNAME":
+        cname_target = raw.get("cname_target", "").strip()
+        if not hostname or not cname_target:
+            return [], []
+        nh = normalize_entity_value("hostname", hostname)
+        nc = normalize_entity_value("hostname", cname_target)
+        return [
+            EntityCandidate("hostname", nh, {
+                "source": "dns", "record_type": "CNAME",
+                "cname_target": cname_target,
+            }),
+            EntityCandidate("hostname", nc, {
+                "source": "dns_cname",
+                "cname_for": hostname,
+            }),
+        ], [
+            RelationshipCandidate("hostname", nh, "hostname", nc, "cname_to", "pivot"),
+        ]
+
+    # A record (existing behavior)
     ip = raw.get("ip", "").strip()
     if not hostname or not ip:
         return [], []
     nh = normalize_entity_value("hostname", hostname)
     ni = normalize_entity_value("ip", ip)
     return [
-        EntityCandidate("hostname", nh, {"source": "dns", "record_type": raw.get("record_type", "A")}),
+        EntityCandidate("hostname", nh, {"source": "dns", "record_type": "A"}),
         EntityCandidate("ip", ni, {"source": "dns"}),
     ], [
         RelationshipCandidate("hostname", nh, "ip", ni, "resolves_to", "pivot"),
@@ -269,9 +291,18 @@ def domain_extract(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipC
     domain = raw.get("domain", "").strip()
     if not domain:
         return [], []
-    return [EntityCandidate("domain", normalize_entity_value("domain", domain), {
-        "source": "domain_extract", "source_hostname": raw.get("source_hostname", ""),
-    })], []
+    nd = normalize_entity_value("domain", domain)
+    nh = raw.get("source_hostname", "").strip()
+    rels: list[RelationshipCandidate] = []
+    if nh:
+        rels.append(RelationshipCandidate(
+            "hostname", normalize_entity_value("hostname", nh),
+            "domain", nd,
+            "registered_domain_of", "pivot",
+        ))
+    return [EntityCandidate("domain", nd, {
+        "source": "domain_extract", "source_hostname": nh,
+    })], rels
 
 
 def geoip(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -441,14 +472,17 @@ def passive_dns(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCand
     nd = normalize_entity_value("domain", domain)
     a_records = pdns.get("a_records", [])
     entities = [EntityCandidate("domain", nd, {"source": "securitytrails", "dns_history": a_records})]
+    rels: list[RelationshipCandidate] = []
     for rec in a_records:
         ip = rec.get("ip", "").strip()
         if ip:
-            entities.append(EntityCandidate("ip", normalize_entity_value("ip", ip), {
+            ni = normalize_entity_value("ip", ip)
+            entities.append(EntityCandidate("ip", ni, {
                 "source": "securitytrails", "first_seen": rec.get("first_seen", ""),
                 "last_seen": rec.get("last_seen", ""), "resolved_for": domain,
             }))
-    return entities, []
+            rels.append(RelationshipCandidate("domain", nd, "ip", ni, "resolves_to", "pivot"))
+    return entities, rels
 
 
 def cloud_bucket(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -479,10 +513,14 @@ def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[Relations
     tc = raw.get("takeover_check")
     if not hostname or not tc:
         return [], []
-    return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), {
-        "source": "takeover", "takeover_risk": tc.get("takeover_risk", False),
+    attrs: dict[str, Any] = {
+        "source": "takeover",
+        "takeover_risk": tc.get("takeover_risk", False),
         "fingerprint_matches": tc.get("fingerprint_matches", []),
-    })], []
+    }
+    if tc.get("cname_target"):
+        attrs["cname_target"] = tc["cname_target"]
+    return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), attrs)], []
 
 
 def ripe_stat(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:

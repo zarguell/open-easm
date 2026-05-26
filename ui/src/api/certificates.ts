@@ -14,6 +14,8 @@ export interface CertificateInventoryItem {
   risk: string | null
   reasons: string[]
   strength: string | null
+  san_dns_names: string[]
+  subject_source: 'cn' | 'san'
 }
 
 export interface CertificateSummary {

@@ -31,6 +31,7 @@ function endpointLabel(endpoint: unknown): string {
 export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certificate }) => {
   const endpoints = Array.isArray(certificate.observed_endpoints) ? certificate.observed_endpoints : []
   const reasons = Array.isArray(certificate.reasons) ? certificate.reasons : []
+  const sanNames = Array.isArray(certificate.san_dns_names) ? certificate.san_dns_names : []
 
   return (
     <div className="space-y-5">
@@ -43,6 +44,11 @@ export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certif
         </div>
         <h2 className="break-words text-base font-semibold text-ink">
           {certificate.subject_cn || 'Unknown subject'}
+          {certificate.subject_source === 'san' && (
+            <span className="ml-2 inline-flex rounded-sm border border-hairline bg-canvas-soft px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-mute">
+              from SAN
+            </span>
+          )}
         </h2>
         <p className="break-all font-mono text-xs text-mute" title={certificate.fingerprint_sha256 ?? undefined}>
           {truncateMiddle(certificate.fingerprint_sha256 || certificate.entity_id, 72)}
@@ -88,6 +94,24 @@ export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certif
           </div>
         ) : (
           <p className="text-sm text-mute">No reasons reported</p>
+        )}
+      </section>
+
+      <section className="space-y-3 border-t border-hairline pt-4">
+        <SectionTitle title={`Subject Alternative Names${sanNames.length > 0 ? ` (${sanNames.length})` : ''}`} />
+        {sanNames.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {sanNames.map((name) => (
+              <span
+                key={name}
+                className="rounded-sm border border-hairline bg-canvas-soft px-2 py-1 font-mono text-[11px] text-body"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-mute">No SAN DNS names</p>
         )}
       </section>
 

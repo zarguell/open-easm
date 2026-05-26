@@ -74,6 +74,15 @@ RUN WEBANALYZE_VER="v0.4.3" && \
     chmod +x /usr/local/bin/webanalyze && \
     cd /tmp && webanalyze -update && mv /tmp/technologies.json /usr/local/bin/
 
+# Install gitleaks
+RUN GITLEAKS_VER="v8.24.3" && \
+    curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER#v}_linux_x64.tar.gz" \
+    | tar xz -C /usr/local/bin/ gitleaks && \
+    chmod +x /usr/local/bin/gitleaks
+
+# Install dnstwist
+RUN pip install --no-cache-dir dnstwist
+
 # Download GeoLite2 database
 RUN mkdir -p /app/data && \
     curl -fsSL "https://github.com/zarguell/TA-geoip/raw/refs/heads/master/bin/GeoLite2-City.mmdb" \

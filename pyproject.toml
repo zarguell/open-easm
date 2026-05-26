@@ -2,7 +2,7 @@
 name = "open-easm"
 version = "1.0.0"
 description = "Self-hosted passive External Attack Surface Management monitoring platform"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -24,6 +24,12 @@ dependencies = [
     "dnstwist>=20241218",
     "procrastinate>=2.14.0",
     "psycopg_pool>=3.2.0",
+    "reportlab>=4.0.0",
+    "openpyxl>=3.1.0",
+    "PyJWT>=2.9.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.3,<4.4",
+    "fastapi-sso>=0.16.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +42,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -44,7 +50,7 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.mypy]
 strict = true
-python_version = "3.14"
+python_version = "3.12"
 
 [[tool.mypy.overrides]]
 module = "asyncpg"

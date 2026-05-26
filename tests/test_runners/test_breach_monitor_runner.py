@@ -41,10 +41,10 @@ def mock_store():
     store = MagicMock()
     store.pool = AsyncMock()
     store.insert_raw_event = AsyncMock(return_value=True)
-    store.create_run = AsyncMock(return_value=uuid.uuid7())
+    store.create_run = AsyncMock(return_value=uuid.uuid4())
     store.mark_run_started = AsyncMock()
     store.mark_run_finished = AsyncMock()
-    store.get_run = AsyncMock(return_value={"discovery_session_id": str(uuid.uuid7())})
+    store.get_run = AsyncMock(return_value={"discovery_session_id": str(uuid.uuid4())})
     return store
 
 
@@ -61,7 +61,7 @@ async def test_breach_monitor_hibp_check(target, mock_store):
     mock_client.get = AsyncMock(return_value=mock_resp)
 
     runner = BreachMonitorRunner(mock_store, http_client=mock_client)
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted >= 1
@@ -78,7 +78,7 @@ async def test_breach_monitor_hibp_no_breaches(target, mock_store):
     mock_client.get = AsyncMock(return_value=mock_resp)
 
     runner = BreachMonitorRunner(mock_store, http_client=mock_client)
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted == 0
@@ -95,7 +95,7 @@ async def test_breach_monitor_hibp_rate_limited(target, mock_store):
     mock_client.get = AsyncMock(return_value=mock_resp)
 
     runner = BreachMonitorRunner(mock_store, http_client=mock_client)
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted == 0
@@ -126,7 +126,7 @@ async def test_breach_monitor_dehashed_check(target, mock_store):
     mock_client.get = AsyncMock(return_value=mock_resp)
 
     runner = BreachMonitorRunner(mock_store, http_client=mock_client)
-    run_id = uuid.uuid7()
+    run_id = uuid.uuid4()
     inserted, deduped, errors = await runner.run_once(target, "scheduled", run_id)
 
     assert inserted >= 1

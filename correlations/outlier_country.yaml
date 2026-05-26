@@ -9,6 +9,16 @@ collect:
   - method: exact
     field: entity_type
     value: ip
+  - method: regex
+    field: attributes.country_code
+    patterns:
+      - ".+"
+  - method: not_regex
+    field: attributes.country_code
+    patterns:
+      - "^US$"
+      - "^CA$"
+      - "^GB$"
 aggregation:
   field: entity_value
 headline: "IP in potentially unexpected location: {entity_value}"

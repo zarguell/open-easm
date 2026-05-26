@@ -1,11 +1,26 @@
-import ky from 'ky'
+import ky from "ky";
 
-// In development, Vite proxies /api to :8000
-// In production, FastAPI serves the SPA and API is same origin
 const api = ky.create({
-  prefix: '/api',
-  headers: { Accept: 'application/json' },
+  prefix: "/api",
+  headers: { Accept: "application/json" },
   timeout: 30_000,
-})
+  hooks: {
+    afterResponse: [
+      ({response, request}) => {
+        if (response.status === 401) {
+          // Don't redirect on auth endpoint 401s (wrong password, etc.)
+          const url = new URL(request.url);
+          if (url.pathname.startsWith("/api/auth/")) {
+            return;
+          }
+          const currentPath = window.location.pathname;
+          if (!currentPath.startsWith("/ui/login") && !currentPath.startsWith("/ui/register")) {
+            window.location.href = "/ui/login";
+          }
+        }
+      },
+    ],
+  },
+});
 
-export default api
+export default api;

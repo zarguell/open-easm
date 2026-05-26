@@ -9,11 +9,6 @@ collect:
   - method: exact
     field: entity_type
     value: certificate
-  - method: regex
-    field: entity_value
-    patterns:
-      - ".*expired.*"
-      - ".*expiring.*"
 aggregation:
   field: entity_value
 headline: "Stale certificate found: {entity_value}"

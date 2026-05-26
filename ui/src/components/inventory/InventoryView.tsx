@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useEntities } from '../../api/entities'
+import { useEntities, useEntityCounts } from '../../api/entities'
 import { useDebounce } from '../../hooks/useDebounce'
 import { TypeFilter } from '../shared/TypeFilter'
 import { SearchInput } from '../shared/SearchInput'
@@ -15,6 +15,9 @@ export function InventoryView() {
   const debouncedSearch = useDebounce(searchQuery)
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)
 
+  const { data: countsData } = useEntityCounts()
+  const serverCounts = countsData?.counts ?? {}
+
   const {
     data,
     fetchNextPage,
@@ -26,6 +29,7 @@ export function InventoryView() {
     refetch,
   } = useEntities({
     entity_type: entityType ?? undefined,
+    q: debouncedSearch || undefined,
     limit: 50,
   })
 
@@ -34,26 +38,10 @@ export function InventoryView() {
     return pages.flatMap((page) => page.entities)
   }, [data?.pages])
 
-  const filteredEntities = useMemo(() => {
-    if (!debouncedSearch) return allEntities
-    const lower = debouncedSearch.toLowerCase()
-    return allEntities.filter((e) =>
-      e.entity_value.toLowerCase().includes(lower),
-    )
-  }, [allEntities, debouncedSearch])
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const e of allEntities) {
-      c[e.entity_type] = (c[e.entity_type] ?? 0) + 1
-    }
-    return c
-  }, [allEntities])
-
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col min-w-0 p-6 gap-4">
-        <TypeFilter selected={entityType} onSelect={setEntityType} counts={counts} />
+        <TypeFilter selected={entityType} onSelect={setEntityType} counts={serverCounts} />
 
         <SearchInput
           value={searchQuery}
@@ -75,7 +63,7 @@ export function InventoryView() {
           )}
           {!isLoading && !isError && (
             <EntityTable
-              entities={filteredEntities}
+              entities={allEntities}
               hasNextPage={hasNextPage ?? false}
               isFetchingNextPage={isFetchingNextPage}
               onLoadMore={fetchNextPage}

@@ -5,14 +5,12 @@ meta:
   description: >
     An email address or email pattern matching the organization was found
     in breach monitoring data.
+# DISABLED: breach_monitor only creates raw events, not email entities.
+# Re-enable after BUG-03 pattern is fixed for breach_monitor.
 collect:
   - method: exact
     field: entity_type
-    value: hostname
-  - method: regex
-    field: entity_value
-    patterns:
-      - ".*@.*"
+    value: __disabled_breach_monitor_no_email_entities__
 aggregation:
   field: entity_value
 headline: "Email-related entity found: {entity_value}"

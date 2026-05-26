@@ -9,7 +9,6 @@ RAW_ONLY_RUNNERS = {
     "paste_monitor",
     "gist_monitor",
     "stackoverflow_monitor",
-    "discord_monitor",
     "github_scan",
     "breach_monitor",
 }

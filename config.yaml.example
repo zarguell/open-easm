@@ -1,3 +1,10 @@
+runtime:
+  mode: live
+  allow_active_scanning: false    # set true to enable portscan, nuclei, wappalyzer, screenshot
+  allow_external_network: true
+  allow_subprocess: true
+  refresh_kev_on_startup: true
+
 saas_providers:
   rules:
     - pattern: "*.amazonaws.com"
@@ -101,11 +108,6 @@ targets:
         schedule: "0 */2 * * *"
         args:
           timeout_seconds: 60
-      discord_monitor:
-        enabled: false
-        schedule: "*/15 * * * *"
-        args:
-          timeout_seconds: 30
       github_scan:
         enabled: true
         schedule: "0 */4 * * *"
@@ -131,11 +133,6 @@ targets:
         schedule: "0 */2 * * *"
         args:
           timeout_seconds: 60
-      discord_monitor:
-        enabled: false
-        schedule: "*/5 * * * *"
-        discord_token: "${DISCORD_TOKEN}"
-        channels: []
       commoncrawl:
         enabled: true
         schedule: "0 4 * * 1"
@@ -249,3 +246,78 @@ targets:
           to: hostname
           via: reverse_dns
           cooldown_hours: 24
+
+# API keys for external enrichment services.
+# Set via config or environment variables (env var names shown in comments).
+enrichment:
+  shodan: "${SHODAN_API_KEY}"            # env: SHODAN_API_KEY
+  abuseipdb: "${ABUSEIPDB_API_KEY}"      # env: ABUSEIPDB_API_KEY
+  greynoise: "${GREYNOISE_API_KEY}"      # env: GREYNOISE_API_KEY
+  censys_id: "${CENSYS_API_ID}"          # env: CENSYS_API_ID
+  censys_secret: "${CENSYS_API_SECRET}"  # env: CENSYS_API_SECRET
+  securitytrails: "${SECURITYTRAILS_API_KEY}"  # env: SECURITYTRAILS_API_KEY
+
+# Notification channels for alert routing.
+# Findings are dispatched to matching channels based on severity.
+notifications:
+  rate_limit_per_hour: 100
+  channels: []
+  # Example channels:
+  # - name: security-webhook
+  #   type: webhook
+  #   enabled: true
+  #   min_severity: high
+  #   webhook:
+  #     url: "https://example.com/webhook"
+  #     secret: "${WEBHOOK_SECRET}"
+  # - name: security-email
+  #   type: smtp
+  #   enabled: true
+  #   min_severity: medium
+  #   smtp:
+  #     host: "${SMTP_HOST}"
+  #     port: 587
+  #     username: "${SMTP_USERNAME}"
+  #     password: "${SMTP_PASSWORD}"
+  #     use_tls: true
+  #     from_address: "easm@example.com"
+  #     to_addresses: ["security@example.com"]
+  # - name: slack-alerts
+  #   type: slack
+  #   enabled: false
+  #   min_severity: high
+  #   slack:
+  #     url: "${SLACK_WEBHOOK_URL}"
+
+# Authentication configuration
+# auth:
+#   mode: none  # none | reverse_proxy | local | sso
+#
+#   # API key authentication (works in any mode)
+#   api_keys:
+#     enabled: true
+#     header_name: X-API-Key
+#
+#   # Reverse proxy mode: trust header from trusted proxy IPs
+#   # reverse_proxy:
+#   #   header: X-Forwarded-User
+#   #   trusted_proxies:
+#   #     - 10.0.0.0/8
+#   #     - 172.16.0.0/12
+#   #   auto_provision: false  # Create users from header on first request
+#   #   auto_provision_role: viewer
+#
+#   # Local mode: username/password with JWT sessions
+#   # local:
+#   #   session_secret: ${EASM_SESSION_SECRET}
+#   #   session_max_age_seconds: 86400
+#   #   cookie_name: easm_session
+#   #   cookie_secure: true  # Set false only in development without HTTPS
+#
+#   # SSO mode: OAuth2 via external provider
+#   # sso:
+#   #   provider: google  # google | github | microsoft | okta
+#   #   client_id: your-client-id
+#   #   client_secret: your-client-secret
+#   #   redirect_uri: https://your-domain/api/auth/sso/callback
+#   #   session_secret: ${EASM_SESSION_SECRET}  # Required if auth.local not set

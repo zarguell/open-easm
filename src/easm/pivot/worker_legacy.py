@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from easm.certificates import certificate_inventory_to_findings
 from easm.correlation.engine import CorrelationEngine
 from easm.correlation.loader import load_rules_from_dir
 from easm.pivot.handlers import PIVOT_HANDLER_REGISTRY, PIVOT_SOURCE_NAMES
@@ -26,6 +27,51 @@ CORRELATIONS_DIR = Path(__file__).parent.parent.parent / "correlations"
 MAX_TRANSIENT_RETRIES = 3
 
 
+def _dispatch_finding_notification(f: Any, finding_id: Any) -> None:
+    """Fire-and-forget notification dispatch for a newly created finding."""
+    from easm.notifications.dispatcher import get_dispatcher
+    from easm.notifications.types import NotificationPayload
+
+    dispatcher = get_dispatcher()
+    if not dispatcher:
+        return
+    try:
+        import asyncio
+
+        payload = NotificationPayload(
+            finding_id=str(finding_id),
+            rule_id=f.rule_id,
+            headline=f.headline,
+            risk=f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+            severity=f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+            target_id=f.target_id,
+            entity_ids=f.entity_ids,
+            evidence=f.evidence,
+        )
+        loop = asyncio.get_running_loop()
+        loop.create_task(dispatcher.dispatch(payload))
+
+        # SSE stream publishing (non-critical)
+        try:
+            from easm.api.sse import get_finding_stream
+            stream = get_finding_stream()
+            if stream.subscriber_count > 0:
+                stream.publish({
+                    "finding_id": str(finding_id),
+                    "rule_id": f.rule_id,
+                    "headline": f.headline,
+                    "risk": f.risk.value if hasattr(f.risk, "value") else str(f.risk),
+                    "target_id": f.target_id,
+                    "entity_ids": f.entity_ids,
+                    "evidence": f.evidence,
+                    "status": "open",
+                })
+        except Exception:
+            pass  # non-critical
+    except Exception:
+        logger.debug("notification dispatch error (non-fatal)", exc_info=True)
+
+
 async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
     try:
         if not CORRELATIONS_DIR.exists():
@@ -39,11 +85,37 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
             return
         for f in findings:
             try:
-                await store.create_finding(f)
+                finding_id = await store.create_finding(f)
+                _dispatch_finding_notification(f, finding_id)
             except Exception:
                 logger.exception("failed to save finding", extra={"rule_id": f.rule_id})
     except Exception:
         logger.exception("correlation engine failed")
+
+    try:
+        cert_rows = await store.list_certificate_inventory(
+            target_id=target_id, org_id=org_id, limit=500
+        )
+        if cert_rows:
+            cert_findings = certificate_inventory_to_findings(
+                org_id=org_id, target_id=target_id, rows=cert_rows
+            )
+            for f in cert_findings:
+                try:
+                    finding_id = await store.create_finding(f)
+                    _dispatch_finding_notification(f, finding_id)
+                except Exception:
+                    logger.exception(
+                        "failed to save certificate finding",
+                        extra={"rule_id": f.rule_id},
+                    )
+            logger.info(
+                "Certificate analysis produced %d findings for target %s",
+                len(cert_findings),
+                target_id,
+            )
+    except Exception:
+        logger.exception("certificate findings generation failed")
 
 
 def _resolve_target_config(config: Any | None, target_id: str) -> Any | None:

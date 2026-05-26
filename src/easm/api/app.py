@@ -11,6 +11,10 @@ from fastapi.responses import JSONResponse
 from easm.api.routes import (
     alerts as alerts_route,
 )
+from easm.auth.middleware import auth_middleware
+from easm.api.routes import (
+    auth as auth_route,
+)
 from easm.api.routes import (
     assets,
     certificates,
@@ -31,6 +35,21 @@ from easm.api.routes import (
 )
 from easm.api.routes import (
     triage as triage_route,
+)
+from easm.api.routes import (
+    notifications as notifications_route,
+)
+from easm.api.routes import (
+    legal as legal_route,
+)
+from easm.api.routes import (
+    verification as verification_route,
+)
+from easm.api.routes import (
+    scoring as scoring_route,
+)
+from easm.api.routes import (
+    reports as reports_route,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +78,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.middleware("http")(auth_middleware)
+
+    app.include_router(auth_route.router, prefix="/api")
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unhandled exception", extra={"path": request.url.path})
@@ -76,6 +99,11 @@ def create_app() -> FastAPI:
     app.include_router(certificates.router, prefix="/api")
     app.include_router(assets.router, prefix="/api")
     app.include_router(alerts_route.router, prefix="/api")
+    app.include_router(notifications_route.router, prefix="/api")
+    app.include_router(legal_route.router, prefix="/api")
+    app.include_router(verification_route.router, prefix="/api")
+    app.include_router(scoring_route.router, prefix="/api")
+    app.include_router(reports_route.router, prefix="/api")
     app.include_router(triage_route.router)
     app.include_router(workers.router)
 

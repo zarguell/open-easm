@@ -104,8 +104,8 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
         )
 
     from easm.runners import get_all_runners
-    from easm.runners.engine import execute_runner
     from easm.runtime import get_runtime
+    from easm.tasks.runner import execute_runner as defer_runner
 
     runners = get_all_runners()
     runner_def = runners.get(runner)
@@ -128,16 +128,15 @@ async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
             },
         )
 
-    http_client = runtime.make_http_client()
-    try:
-        run_id = await execute_runner(
-            runner_def.source_name, runner_def.run_fn, target, store,
-            "manual", http_client=http_client,
-        )
-    finally:
-        await http_client.aclose()
+    await defer_runner.configure(
+        priority=1,
+    ).defer_async(
+        runner_name=runner,
+        target_id=target.id,
+        trigger_type="manual",
+        org_id=getattr(target, "org_id", "default"),
+    )
     return RunTriggerResponse(
-        run_id=str(run_id),
         status="accepted",
-        message=f"Manual run triggered for {runner} on target {target_id}",
+        message=f"Manual run deferred for {runner} on target {target_id}",
     )

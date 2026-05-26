@@ -2,10 +2,12 @@ import { type FC, useState } from 'react'
 import { useEntity, useEntityRelationships } from '../../api/entities'
 import { EntityTypeBadge } from '../shared/Badge'
 import { Badge } from '../shared/Badge'
+import { SlideOver } from '../shared/SlideOver'
 import { formatDateTime } from '../../lib/format'
 import { getEntityColor, getEntityBgColor } from '../../lib/entity-colors'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import { StructuredAttributes } from './AttributeRenderers'
+import { DiscoveryLineagePanel } from './DiscoveryLineagePanel'
 
 interface EntityDetailProps {
   entityId: string
@@ -111,6 +113,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
   const { data: entity, isLoading, error } = useEntity(entityId)
   const { data: relationshipsData } = useEntityRelationships(entityId)
   const [attributesOpen, setAttributesOpen] = useState(false)
+  const [lineageOpen, setLineageOpen] = useState(false)
 
   if (isLoading) {
     return <div className="text-sm text-mute">Loading...</div>
@@ -132,7 +135,16 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <EntityTypeBadge entityType={entity.entity_type} />
+        <div className="flex items-center gap-2">
+          <EntityTypeBadge entityType={entity.entity_type} />
+          <button
+            onClick={() => setLineageOpen(true)}
+            className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-mute hover:text-ink hover:border-hairline-soft transition-colors cursor-pointer"
+          >
+            <GitBranch className="h-3 w-3" />
+            Lineage
+          </button>
+        </div>
         <div className="font-mono text-base text-ink break-all">{entity.entity_value}</div>
         {entity.is_first_discovery && (
           <Badge variant="success">First Discovery</Badge>
@@ -232,6 +244,14 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
           )}
         </div>
       )}
+
+      <SlideOver
+        open={lineageOpen}
+        onClose={() => setLineageOpen(false)}
+        title="Discovery Lineage"
+      >
+        <DiscoveryLineagePanel entityId={entityId} />
+      </SlideOver>
     </div>
   )
 }
