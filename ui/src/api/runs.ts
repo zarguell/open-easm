@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from './client'
+import type { PaginatedResponse } from '../lib/types'
 
 export interface RunSummary {
   id: string
@@ -34,7 +35,7 @@ export function useRuns(params: {
 }) {
   return useQuery({
     queryKey: ['runs', params],
-    queryFn: () => {
+    queryFn: async () => {
       const searchParams: Record<string, string> = {}
       if (params.target_id) searchParams.target_id = params.target_id
       if (params.source) searchParams.source = params.source
@@ -44,7 +45,8 @@ export function useRuns(params: {
       if (params.end) searchParams.end = params.end
       searchParams.limit = String(params.limit ?? 50)
       searchParams.offset = String(params.offset ?? 0)
-      return api.get('runs', { searchParams }).json<RunSummary[]>()
+      const resp = await api.get('runs', { searchParams }).json<PaginatedResponse<RunSummary>>()
+      return resp.items
     },
   })
 }

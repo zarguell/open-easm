@@ -1,5 +1,6 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import api from './client'
+import type { PaginatedResponse } from '../lib/types'
 
 export interface Entity {
   id: string
@@ -55,8 +56,13 @@ export function useEntities(params: {
       if (params.last_seen_before) searchParams.last_seen_before = params.last_seen_before
       if (params.q) searchParams.q = params.q
       searchParams.limit = String(params.limit ?? 50)
-      if (pageParam) searchParams.cursor = pageParam as string
-      return api.get('entities', { searchParams }).json<EntitiesResponse>()
+      if (pageParam) searchParams.cursor = pageParam
+      const resp = await api.get('entities', { searchParams }).json<PaginatedResponse<Entity>>()
+      return {
+        entities: resp.items,
+        next_cursor: resp.next_cursor,
+        total_count: resp.total,
+      }
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor,

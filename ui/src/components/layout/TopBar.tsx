@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Search, Menu } from "lucide-react";
+import { getEntityColor } from "../../lib/entity-colors";
 
 interface TopBarProps {
   onMobileMenuToggle: () => void;
@@ -25,20 +26,6 @@ interface SearchResult {
   entity_type: string;
   entity_value: string;
   target_id: string;
-}
-
-const entityTypeColors: Record<string, string> = {
-  asn: "#3b82f6",
-  ip_range: "#6366f1",
-  ip: "#f97316",
-  hostname: "#22c55e",
-  domain: "#a855f7",
-  certificate: "#eab308",
-  org: "#ec4899",
-};
-
-function getEntityColor(type: string): string {
-  return entityTypeColors[type.toLowerCase()] ?? "#6b7280";
 }
 
 export function TopBar({ onMobileMenuToggle }: TopBarProps) {
@@ -68,7 +55,7 @@ export function TopBar({ onMobileMenuToggle }: TopBarProps) {
         setResults([]);
       }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); };
   }, [query]);
 
   useEffect(() => {
@@ -81,7 +68,7 @@ export function TopBar({ onMobileMenuToggle }: TopBarProps) {
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () => { document.removeEventListener("mousedown", handleClickOutside); };
   }, []);
 
   const handleSelect = (result: SearchResult) => {
@@ -110,7 +97,7 @@ export function TopBar({ onMobileMenuToggle }: TopBarProps) {
             type="text"
             placeholder="Search…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setQuery(e.target.value); }}
             onFocus={() => results.length > 0 && setShowDropdown(true)}
             className="bg-transparent border-none outline-none text-sm text-ink placeholder:text-mute w-32 sm:w-48"
           />
@@ -123,7 +110,7 @@ export function TopBar({ onMobileMenuToggle }: TopBarProps) {
               return (
                 <button
                   key={r.id}
-                  onClick={() => handleSelect(r)}
+                  onClick={() => { handleSelect(r); }}
                   className="flex items-center gap-3 w-full px-3 py-2 text-left hover:bg-canvas-soft transition-colors cursor-pointer"
                 >
                   <span

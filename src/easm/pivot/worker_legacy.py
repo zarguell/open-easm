@@ -93,9 +93,10 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
         logger.exception("correlation engine failed")
 
     try:
-        cert_rows = await store.list_certificate_inventory(
+        cert_result = await store.list_certificate_inventory(
             target_id=target_id, org_id=org_id, limit=500
         )
+        cert_rows = cert_result["certificates"] if isinstance(cert_result, dict) else cert_result
         if cert_rows:
             cert_findings = certificate_inventory_to_findings(
                 org_id=org_id, target_id=target_id, rows=cert_rows

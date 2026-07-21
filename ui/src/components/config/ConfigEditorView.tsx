@@ -24,9 +24,9 @@ function Field({
     <label className="block space-y-1">
       <span className="text-xs font-medium text-mute">{label}</span>
       {multiline ? (
-        <textarea className={cls} rows={3} value={value} onChange={(e) => onChange(e.target.value)} />
+        <textarea className={cls} rows={3} value={value} onChange={(e) => { onChange(e.target.value); }} />
       ) : (
-        <input className={cls} value={value} onChange={(e) => onChange(e.target.value)} />
+        <input className={cls} value={value} onChange={(e) => { onChange(e.target.value); }} />
       )}
     </label>
   )
@@ -38,7 +38,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       type="button"
       role="switch"
       aria-checked={checked}
-      onClick={() => onChange(!checked)}
+      onClick={() => { onChange(!checked); }}
       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
         checked ? 'bg-primary' : 'bg-hairline'
       }`}
@@ -65,8 +65,8 @@ export function ConfigEditorView() {
     setError(null)
     getConfig()
       .then(setConfig)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .catch((e) => { setError(e.message); })
+      .finally(() => { setLoading(false); })
   }, [])
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export function ConfigEditorView() {
     (idx: number, patch: Record<string, unknown>) => {
       if (!config) return
       const next = clone(config)
-      Object.assign(next.targets[idx] as Record<string, unknown>, patch)
+      Object.assign(next.targets[idx]!, patch)
       setConfig(next)
     },
     [config],
@@ -88,7 +88,7 @@ export function ConfigEditorView() {
       if (!config) return
       const next = clone(config)
       const target = next.targets[idx] as Record<string, Record<string, unknown>>
-      target[key] = { ...(target[key] as Record<string, unknown>), ...patch }
+      target[key] = { ...(target[key]!), ...patch }
       setConfig(next)
     },
     [config],
@@ -99,7 +99,7 @@ export function ConfigEditorView() {
       if (!config) return
       const next = clone(config)
       const target = next.targets[targetIdx] as Record<string, Record<string, Record<string, unknown>>>
-      const runners = { ...(target.runners as Record<string, Record<string, unknown>>) }
+      const runners = { ...(target.runners!) }
       runners[runner] = { ...runners[runner], [field]: value }
       target.runners = runners
       setConfig(next)
@@ -112,7 +112,7 @@ export function ConfigEditorView() {
       if (!config) return
       const next = clone(config)
       const target = next.targets[targetIdx] as Record<string, Record<string, unknown>>
-      target.pivot = { ...(target.pivot as Record<string, unknown>), ...patch }
+      target.pivot = { ...(target.pivot!), ...patch }
       setConfig(next)
     },
     [config],
@@ -177,21 +177,21 @@ export function ConfigEditorView() {
         </span>
         <div className="mt-2 space-y-4">
           {config.targets.map((raw, idx) => {
-            const t = raw as Record<string, unknown>
+            const t = raw
             const matchRules = (t.match_rules ?? {}) as Record<string, unknown>
             const runners = (t.runners ?? {}) as Record<string, Record<string, unknown>>
             const pivot = (t.pivot ?? {}) as Record<string, unknown>
-            const allowedPivots = (pivot.allowed_pivots ?? []) as Array<Record<string, unknown>>
+            const allowedPivots = (pivot.allowed_pivots ?? []) as Record<string, unknown>[]
             const isCollapsed = collapsed[idx] ?? false
 
             return (
               <div
                 key={idx}
-                className="rounded-xl border border-hairline bg-surface p-4 shadow-sm space-y-4"
+                className="rounded-xl border border-hairline bg-canvas-elevated p-4 shadow-sm space-y-4"
               >
                 <button
                   className="flex items-center gap-2 w-full text-left cursor-pointer"
-                  onClick={() => setCollapsed((c) => ({ ...c, [idx]: !c[idx] }))}
+                  onClick={() => { setCollapsed((c) => ({ ...c, [idx]: !c[idx] })); }}
                 >
                   {isCollapsed ? (
                     <ChevronRight className="w-4 h-4 text-mute shrink-0" />
@@ -207,15 +207,15 @@ export function ConfigEditorView() {
                 {!isCollapsed && (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Field label="ID" value={String(t.id ?? '')} onChange={(v) => updateTarget(idx, { id: v })} />
-                      <Field label="Name" value={String(t.name ?? '')} onChange={(v) => updateTarget(idx, { name: v })} />
-                      <Field label="Type" value={String(t.type ?? '')} onChange={(v) => updateTarget(idx, { type: v })} />
+                      <Field label="ID" value={String(t.id ?? '')} onChange={(v) => { updateTarget(idx, { id: v }); }} />
+                      <Field label="Name" value={String(t.name ?? '')} onChange={(v) => { updateTarget(idx, { name: v }); }} />
+                      <Field label="Type" value={String(t.type ?? '')} onChange={(v) => { updateTarget(idx, { type: v }); }} />
                     </div>
 
                     <div className="flex items-center gap-3">
                       <Toggle
                         checked={!!t.enabled}
-                        onChange={(v) => updateTarget(idx, { enabled: v })}
+                        onChange={(v) => { updateTarget(idx, { enabled: v }); }}
                       />
                       <span className="text-sm text-ink">Enabled</span>
                     </div>
@@ -229,36 +229,36 @@ export function ConfigEditorView() {
                           label="Domains (comma-separated)"
                           value={(matchRules.domains as string[] ?? []).join(', ')}
                           onChange={(v) =>
-                            updateNested(idx, 'match_rules', {
+                            { updateNested(idx, 'match_rules', {
                               domains: v.split(',').map((s) => s.trim()).filter(Boolean),
-                            })
+                            }); }
                           }
                         />
                         <Field
                           label="Keywords (comma-separated)"
                           value={(matchRules.keywords as string[] ?? []).join(', ')}
                           onChange={(v) =>
-                            updateNested(idx, 'match_rules', {
+                            { updateNested(idx, 'match_rules', {
                               keywords: v.split(',').map((s) => s.trim()).filter(Boolean),
-                            })
+                            }); }
                           }
                         />
                         <Field
                           label="ASNs (comma-separated)"
                           value={(matchRules.asns as string[] ?? []).join(', ')}
                           onChange={(v) =>
-                            updateNested(idx, 'match_rules', {
+                            { updateNested(idx, 'match_rules', {
                               asns: v.split(',').map((s) => s.trim()).filter(Boolean),
-                            })
+                            }); }
                           }
                         />
                         <Field
                           label="IP Ranges (comma-separated)"
                           value={(matchRules.ip_ranges as string[] ?? []).join(', ')}
                           onChange={(v) =>
-                            updateNested(idx, 'match_rules', {
+                            { updateNested(idx, 'match_rules', {
                               ip_ranges: v.split(',').map((s) => s.trim()).filter(Boolean),
-                            })
+                            }); }
                           }
                         />
                       </div>
@@ -278,20 +278,20 @@ export function ConfigEditorView() {
                               <span className="text-sm font-medium text-ink">{name}</span>
                               <Toggle
                                 checked={!!cfg.enabled}
-                                onChange={(v) => updateRunnerField(idx, name, 'enabled', v)}
+                                onChange={(v) => { updateRunnerField(idx, name, 'enabled', v); }}
                               />
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <Field
                                 label="Schedule"
                                 value={String(cfg.schedule ?? '')}
-                                onChange={(v) => updateRunnerField(idx, name, 'schedule', v)}
+                                onChange={(v) => { updateRunnerField(idx, name, 'schedule', v); }}
                               />
                               {cfg.mode !== undefined ? (
                                 <Field
                                   label="Mode"
                                   value={String(cfg.mode ?? '')}
-                                  onChange={(v) => updateRunnerField(idx, name, 'mode', v)}
+                                  onChange={(v) => { updateRunnerField(idx, name, 'mode', v); }}
                                 />
                               ) : (
                                 <Field
@@ -324,17 +324,17 @@ export function ConfigEditorView() {
                         <Field
                           label="Enabled"
                           value={String(pivot.enabled ?? 'true')}
-                          onChange={(v) => updatePivot(idx, { enabled: v === 'true' })}
+                          onChange={(v) => { updatePivot(idx, { enabled: v === 'true' }); }}
                         />
                         <Field
                           label="Max Depth"
                           value={String(pivot.max_depth ?? '')}
-                          onChange={(v) => updatePivot(idx, { max_depth: Number(v) || 0 })}
+                          onChange={(v) => { updatePivot(idx, { max_depth: Number(v) || 0 }); }}
                         />
                         <Field
                           label="Max Concurrent"
                           value={String(pivot.max_concurrent ?? '')}
-                          onChange={(v) => updatePivot(idx, { max_concurrent: Number(v) || 0 })}
+                          onChange={(v) => { updatePivot(idx, { max_concurrent: Number(v) || 0 }); }}
                         />
                       </div>
 

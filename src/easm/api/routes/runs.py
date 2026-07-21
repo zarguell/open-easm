@@ -3,9 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from easm.api.deps import get_config, get_store
+from easm.api.authz import require_admin
+from easm.api.deps import current_org_id, get_config, get_store
+from easm.api.pagination import PaginatedResponse
 from easm.api.schemas import RunDetail, RunSummary, RunTriggerResponse
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -32,7 +34,7 @@ async def count_runs(
     return {"count": count}
 
 
-@router.get("", response_model=list[RunSummary])
+@router.get("", response_model=PaginatedResponse[RunSummary])
 async def list_runs(
     target_id: str | None = None,
     source: str | None = None,
@@ -42,16 +44,21 @@ async def list_runs(
     end: str | None = None,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-) -> list[RunSummary]:
+    org_id_: str = Depends(lambda r: current_org_id(r)),
+) -> PaginatedResponse[RunSummary]:
     store = get_store()
     start_dt = datetime.fromisoformat(start) if start else None
     end_dt = datetime.fromisoformat(end) if end else None
     runs = await store.list_runs(
-        target_id=target_id, source=source, status=status,
+        org_id=org_id_, target_id=target_id, source=source, status=status,
         trigger_type=trigger_type, start=start_dt, end=end_dt,
         limit=limit, offset=offset,
     )
-    return [RunSummary(**r) for r in runs]
+    total = await store.count_runs(
+        target_id=target_id, source=source, status=status,
+        trigger_type=trigger_type, start=start_dt, end=end_dt,
+    )
+    return PaginatedResponse(items=[RunSummary(**r) for r in runs], total=total)
 
 
 @router.get("/{run_id}", response_model=RunDetail)
@@ -72,7 +79,11 @@ async def get_run(run_id: str) -> RunDetail:
 
 
 @router.post("/{target_id}/{runner}", response_model=RunTriggerResponse)
-async def trigger_run(target_id: str, runner: str) -> RunTriggerResponse:
+async def trigger_run(
+    target_id: str,
+    runner: str,
+    _: None = Depends(require_admin),
+) -> RunTriggerResponse:
     config = get_config()
     store = get_store()
 

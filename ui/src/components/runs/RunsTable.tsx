@@ -28,9 +28,9 @@ export const RunsTable: FC<RunsTableProps> = ({ targetId, source, status, refetc
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const params = {
-    target_id: targetId || undefined,
-    source: source || undefined,
-    status: status || undefined,
+    target_id: targetId ?? undefined,
+    source: source ?? undefined,
+    status: status ?? undefined,
     limit: PAGE_SIZE,
     offset,
   }
@@ -104,7 +104,7 @@ export const RunsTable: FC<RunsTableProps> = ({ targetId, source, status, refetc
                   >
                     <div
                       className="flex w-full cursor-pointer hover:bg-canvas-soft transition-colors"
-                      onClick={() => toggleExpand(run.id)}
+                      onClick={() => { toggleExpand(run.id); }}
                     >
                       <div className="flex-1 grid grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_80px_80px_80px] items-center">
                         <span className="px-3 py-2.5 text-sm text-ink truncate">{run.target_id}</span>

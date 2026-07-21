@@ -90,7 +90,8 @@ async def test_certificate_lifecycle_inventory_rows_generate_findings(db_pool):
         },
     )
 
-    rows = await store.list_certificate_inventory(target_id="target-1")
+    result = await store.list_certificate_inventory(target_id="target-1")
+    rows = result["certificates"]
     findings = certificate_inventory_to_findings(
         org_id="default",
         target_id="target-1",

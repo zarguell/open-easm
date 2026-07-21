@@ -18,7 +18,7 @@ export function RegisterPage() {
     }
     try {
       await authApi.register({ username, password });
-      navigate("/ui/login");
+      navigate("/login");
     } catch (err: any) {
       if (err?.response?.status === 409) {
         setError("Username already taken");
@@ -45,7 +45,7 @@ export function RegisterPage() {
           <input
             type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => { setUsername(e.target.value); }}
             placeholder="Choose a username"
             className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
@@ -58,7 +58,7 @@ export function RegisterPage() {
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); }}
             placeholder="Create a password (min 8 chars)"
             className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
@@ -70,7 +70,7 @@ export function RegisterPage() {
           <input
             type="password"
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
+            onChange={(e) => { setConfirm(e.target.value); }}
             placeholder="Confirm your password"
             className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
@@ -85,7 +85,7 @@ export function RegisterPage() {
         </button>
         <p className="text-center text-sm text-mute">
           Already have an account?{" "}
-          <Link to="/ui/login" className="text-primary hover:text-primary-soft underline transition-colors">
+          <Link to="/login" className="text-primary hover:text-primary-soft underline transition-colors">
             Sign In
           </Link>
         </p>

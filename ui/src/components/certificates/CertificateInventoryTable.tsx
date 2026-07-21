@@ -35,7 +35,7 @@ function badgeVariant(value: string | null | undefined, map: typeof riskVariant)
 }
 
 function display(value: string | null | undefined): string {
-  return value || 'unknown'
+  return value ?? 'unknown'
 }
 
 export const CertificateInventoryTable: FC<CertificateInventoryTableProps> = ({
@@ -86,7 +86,7 @@ export const CertificateInventoryTable: FC<CertificateInventoryTableProps> = ({
               return (
                 <tr
                   key={certificate.entity_id}
-                  onClick={() => onSelectCertificate(certificate)}
+                  onClick={() => { onSelectCertificate(certificate); }}
                   className={`border-t border-hairline cursor-pointer transition-colors hover:bg-canvas-soft ${
                     isSelected ? 'bg-canvas-soft' : ''
                   }`}
@@ -94,7 +94,7 @@ export const CertificateInventoryTable: FC<CertificateInventoryTableProps> = ({
                   <td className="px-3 py-2.5 align-top">
                     <div className="flex min-w-0 flex-col gap-1">
                       <span className="text-sm font-semibold text-ink">
-                        {certificate.subject_cn || 'Unknown subject'}
+                        {certificate.subject_cn ?? 'Unknown subject'}
                         {certificate.subject_source === 'san' && (
                           <span className="ml-1.5 font-mono text-[10px] font-normal uppercase tracking-wider text-mute">
                             SAN
@@ -102,12 +102,12 @@ export const CertificateInventoryTable: FC<CertificateInventoryTableProps> = ({
                         )}
                       </span>
                       <span className="font-mono text-[11px] text-mute">
-                        {truncateMiddle(certificate.fingerprint_sha256 || certificate.entity_id, 34)}
+                        {truncateMiddle(certificate.fingerprint_sha256 ?? certificate.entity_id, 34)}
                       </span>
                     </div>
                   </td>
                   <td className="px-3 py-2.5 align-top text-sm text-body">
-                    {truncateMiddle(certificate.issuer_organization || 'unknown', 28)}
+                    {truncateMiddle(certificate.issuer_organization ?? 'unknown', 28)}
                   </td>
                   <td className="px-3 py-2.5 align-top">
                     <Badge variant={badgeVariant(certificate.risk, riskVariant)}>{display(certificate.risk)}</Badge>

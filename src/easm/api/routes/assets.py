@@ -6,7 +6,8 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from starlette.responses import StreamingResponse
 
-from easm.api.deps import get_store
+from easm.api.deps import current_org_id, get_store
+from easm.api.pagination import PaginatedResponse
 from easm.assets.export import asset_to_source_of_truth_record
 from easm.store import Store
 
@@ -21,6 +22,7 @@ async def list_asset_inventory(
     feed_eligible: bool | None = Query(None),
     limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
     result = await store.list_asset_inventory(
@@ -30,9 +32,12 @@ async def list_asset_inventory(
         feed_eligible=feed_eligible,
         limit=limit,
         offset=offset,
-        org_id="default",
+        org_id=org_id_,
     )
-    return {"assets": result["entities"], "total_count": result["total_count"]}
+    return PaginatedResponse(
+        items=result["entities"],
+        total=result["total_count"],
+    )
 
 
 @router.get("/assets/changes")
@@ -41,12 +46,13 @@ async def list_asset_changes(
     entity_id: uuid.UUID | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
     changes = await store.list_asset_change_events(
         target_id=target_id,
         entity_id=entity_id,
-        org_id="default",
+        org_id=org_id_,
         limit=limit,
         offset=offset,
     )
@@ -56,6 +62,7 @@ async def list_asset_changes(
 @router.get("/assets/export.ndjson")
 async def export_assets_ndjson(
     target_id: str | None = Query(None),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
     async def generate():
@@ -67,7 +74,7 @@ async def export_assets_ndjson(
                 feed_eligible=True,
                 limit=batch_size,
                 offset=offset,
-                org_id="default",
+                org_id=org_id_,
             )
             entities = result["entities"]
             if not entities:

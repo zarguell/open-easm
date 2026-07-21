@@ -22,7 +22,7 @@ export const RunDetail: FC<RunDetailProps> = ({ run }) => {
         <div>
           <button
             type="button"
-            onClick={() => setShowLogs(!showLogs)}
+            onClick={() => { setShowLogs(!showLogs); }}
             className="font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:text-accent-light transition-colors"
           >
             {showLogs ? 'Hide Logs' : 'Show Logs'}

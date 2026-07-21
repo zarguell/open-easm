@@ -28,7 +28,7 @@ export function formatDateTime(isoDate: string | null): string {
   return new Date(isoDate).toLocaleString()
 }
 
-export function truncateMiddle(s: string, maxLen: number = 40): string {
+export function truncateMiddle(s: string, maxLen = 40): string {
   if (s.length <= maxLen) return s
   const half = Math.floor(maxLen / 2) - 1
   return s.slice(0, half) + '…' + s.slice(-half)

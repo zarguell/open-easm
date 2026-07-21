@@ -105,7 +105,7 @@ export const AssetInventoryTable: FC<AssetInventoryTableProps> = ({
             return (
               <tr
                 key={asset.entity_id}
-                onClick={() => onSelectAsset(asset)}
+                onClick={() => { onSelectAsset(asset); }}
                 className={`cursor-pointer border-t border-hairline text-sm transition-colors hover:bg-canvas-soft ${
                   selected ? 'bg-canvas-soft' : 'bg-canvas'
                 }`}

@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { X } from "lucide-react";
 
 interface SlideOverProps {
@@ -9,10 +9,21 @@ interface SlideOverProps {
 }
 
 export function SlideOver({ open, onClose, title, children }: SlideOverProps) {
+  useEffect(() => {
+    if (!open) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
       className="fixed right-0 top-0 h-screen w-[440px] bg-canvas border-l border-hairline z-50 flex flex-col"
       style={{
         transform: open ? "translateX(0)" : "translateX(100%)",

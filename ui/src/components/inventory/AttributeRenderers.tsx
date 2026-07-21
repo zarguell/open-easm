@@ -83,7 +83,7 @@ const TechnologiesSection: FC<{ data: unknown[] }> = ({ data }) => {
       <div className="flex flex-wrap gap-1">
         {data.map((tech, i) => {
           const t = isRecord(tech) ? tech : {}
-          const name = readText(t, 'name') || 'unknown'
+          const name = readText(t, 'name') ?? 'unknown'
           const version = readText(t, 'version')
           return (
             <span
@@ -170,11 +170,11 @@ export const StructuredAttributes: FC<{ attributes: UnknownRecord }> = ({ attrib
   if (Array.isArray(ports) && ports.length > 0) sections.push(<PortsSection key="ports" data={ports} />)
 
   const portScan = attributes.port_scan
-  if (isRecord(portScan) && Array.isArray((portScan as UnknownRecord).open_ports)) {
-    sections.push(<PortsSection key="port_scan" data={(portScan as UnknownRecord).open_ports as unknown[]} />)
+  if (isRecord(portScan) && Array.isArray((portScan).open_ports)) {
+    sections.push(<PortsSection key="port_scan" data={(portScan).open_ports as unknown[]} />)
   }
 
-  const dns = readRecord(attributes, 'dns_records') || readRecord(attributes, 'dns')
+  const dns = readRecord(attributes, 'dns_records') ?? readRecord(attributes, 'dns')
   if (dns && isRecord(dns)) sections.push(<DNSRecordsSection key="dns" data={dns} />)
 
   const mx = readRecord(attributes, 'mail_records')
@@ -183,7 +183,7 @@ export const StructuredAttributes: FC<{ attributes: UnknownRecord }> = ({ attrib
   const geoip = readRecord(attributes, 'geoip')
   if (geoip) sections.push(<GeoIPSection key="geoip" data={geoip} />)
 
-  const rdap = readRecord(attributes, 'rdap') || readRecord(attributes, 'whois')
+  const rdap = readRecord(attributes, 'rdap') ?? readRecord(attributes, 'whois')
   if (rdap) sections.push(<RDAPSection key="rdap" data={rdap} />)
 
   const takeover = readRecord(attributes, 'subdomain_takeover')

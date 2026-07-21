@@ -4,9 +4,10 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
+from easm.api.authz import require_admin
 from easm.auth.password import hash_password, verify_password
 from easm.auth.session import create_session_token
 
@@ -174,10 +175,25 @@ async def logout(request: Request) -> Any:
 
 @router.get("/auth/me")
 async def me(request: Request) -> Any:
-    user = getattr(request.state, "user", None)
-    if user is None:
+    from easm.api.deps import get_store
+
+    session_user = getattr(request.state, "user", None)
+    if session_user is None:
         return Response(status_code=401, content='{"error": "not_authenticated"}')
-    return user
+
+    store = get_store()
+    db_user = await store.get_user_by_id(session_user["user_id"])
+    if db_user is None:
+        return Response(status_code=401, content='{"error": "user_not_found"}')
+
+    return {
+        "id": str(db_user["id"]),
+        "username": db_user["username"],
+        "display_name": db_user.get("display_name"),
+        "email": db_user.get("email"),
+        "role": db_user["role"],
+        "org_id": db_user["org_id"],
+    }
 
 
 @router.post("/auth/api-keys", status_code=201)
@@ -249,6 +265,73 @@ async def delete_api_key(api_key_id: str, request: Request) -> Response:
 
     store = get_store()
     deleted = await store.delete_api_key(api_key_id, user["user_id"])
+    if not deleted:
+        return Response(status_code=404, content='{"error": "not_found"}')
+    return Response(status_code=204)
+
+
+def _require_admin(request: Request) -> dict:
+    user = getattr(request.state, "user", None)
+    if user is None or user.get("role") != "admin":
+        raise PermissionError("admin_required")
+    return user
+
+
+@router.get("/auth/users")
+async def list_users(request: Request) -> Any:
+    from easm.api.deps import get_store
+
+    try:
+        user = _require_admin(request)
+    except PermissionError:
+        return Response(status_code=403, content='{"error": "admin_required"}')
+
+    store = get_store()
+    users = await store.list_users(org_id=user.get("org_id", "default"))
+    return [
+        {k: v for k, v in u.items() if k != "password_hash"}
+        for u in users
+    ]
+
+
+@router.put("/auth/users/{user_id}")
+async def update_user(user_id: str, request: Request) -> Any:
+    from easm.api.deps import get_store
+
+    user = getattr(request.state, "user", None)
+    if user is None:
+        return Response(status_code=401, content='{"error": "not_authenticated"}')
+
+    body = await request.json()
+    store = get_store()
+
+    updates: dict[str, str | None] = {}
+    if "email" in body:
+        updates["email"] = body["email"]
+    if "display_name" in body:
+        updates["display_name"] = body["display_name"]
+    if "current_password" in body and "new_password" in body:
+        if str(user["user_id"]) != user_id:
+            return Response(status_code=403, content='{"error": "cannot_change_others_password"}')
+        existing = await store.get_user_by_id(user["user_id"])
+        if existing is None or not verify_password(body["current_password"], existing["password_hash"]):
+            return Response(status_code=403, content='{"error": "invalid_password"}')
+        if len(body["new_password"]) < 8:
+            return Response(status_code=400, content='{"error": "password_too_short"}')
+        updates["password_hash"] = hash_password(body["new_password"])
+
+    ok = await store.update_user(user_id, **updates)
+    if not ok:
+        return Response(status_code=404, content='{"error": "not_found"}')
+    return Response(status_code=204)
+
+
+@router.delete("/auth/users/{user_id}")
+async def delete_user(user_id: str, _: None = Depends(require_admin)) -> Response:
+    from easm.api.deps import get_store
+
+    store = get_store()
+    deleted = await store.delete_user(user_id)
     if not deleted:
         return Response(status_code=404, content='{"error": "not_found"}')
     return Response(status_code=204)

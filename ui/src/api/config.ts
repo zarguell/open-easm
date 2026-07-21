@@ -1,7 +1,7 @@
 import api from './client'
 
 export interface ConfigData {
-  targets: Array<Record<string, unknown>>
+  targets: Record<string, unknown>[]
   saas_providers?: Record<string, unknown>
   alerts?: Record<string, unknown>
 }

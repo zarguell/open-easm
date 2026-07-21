@@ -45,7 +45,7 @@ export function InventoryView() {
 
         <SearchInput
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => { setSearchQuery(e.target.value); }}
           placeholder="Search entities..."
           className="max-w-md"
         />
@@ -76,7 +76,7 @@ export function InventoryView() {
 
       <SlideOver
         open={selectedEntityId !== null}
-        onClose={() => setSelectedEntityId(null)}
+        onClose={() => { setSelectedEntityId(null); }}
         title="Entity Detail"
       >
         {selectedEntityId && <EntityDetail entityId={selectedEntityId} onNavigate={setSelectedEntityId} />}

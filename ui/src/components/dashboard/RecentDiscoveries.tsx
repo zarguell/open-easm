@@ -16,7 +16,7 @@ export const RecentDiscoveries: FC<{ refetchInterval: false | number }> = ({ ref
     const id = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ['entities'] })
     }, refetchInterval)
-    return () => clearInterval(id)
+    return () => { clearInterval(id); }
   }, [refetchInterval, queryClient])
 
   if (isError) {

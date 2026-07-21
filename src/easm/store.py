@@ -280,6 +280,7 @@ class Store:
 
     async def list_runs(
         self,
+        org_id: str = "default",
         target_id: str | None = None,
         source: str | None = None,
         status: str | None = None,
@@ -289,9 +290,9 @@ class Store:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
+        conditions: list[str] = ["org_id = $1"]
+        params: list[Any] = [org_id]
+        idx = 1
 
         if target_id:
             idx += 1
@@ -1011,6 +1012,12 @@ class Store:
             f"SELECT COUNT(*) FROM runs {where}", *params,
         ) or 0
 
+    async def list_finding_rules(self) -> list[str]:
+        rows = await self.pool.fetch(
+            "SELECT DISTINCT rule_id FROM findings ORDER BY rule_id"
+        )
+        return [r["rule_id"] for r in rows]
+
     async def count_findings(
         self,
         target_id: str | None = None,
@@ -1120,6 +1127,7 @@ class Store:
 
     async def list_findings(
         self,
+        org_id: str = "default",
         target_id: str | None = None,
         risk: str | None = None,
         status: str | None = None,
@@ -1129,9 +1137,9 @@ class Store:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
+        conditions: list[str] = ["org_id = $1"]
+        params: list[Any] = [org_id]
+        idx = 1
 
         if target_id:
             idx += 1
@@ -1206,7 +1214,7 @@ class Store:
         risk: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         conditions = ["org_id = $1", "entity_type = 'certificate'"]
         params: list[Any] = [org_id]
         idx = 2
@@ -1233,6 +1241,7 @@ class Store:
         rows = await self.pool.fetch(
             f"""
             SELECT
+                COUNT(*) OVER() AS total_count,
                 id AS entity_id,
                 attributes #>> '{{certificate_profile,fingerprint_sha256}}' AS fingerprint_sha256,
                 COALESCE(
@@ -1272,7 +1281,11 @@ class Store:
             """,
             *params,
         )
-        return [_row_to_certificate_inventory_dict(row) for row in rows]
+        total_count = rows[0]["total_count"] if rows else 0
+        return {
+            "certificates": [_row_to_certificate_inventory_dict(row) for row in rows],
+            "total_count": total_count,
+        }
 
     async def summarize_certificate_inventory(
         self,
@@ -1439,6 +1452,52 @@ class Store:
             user_id,
         )
 
+    async def list_users(self, org_id: str = "default") -> list[dict]:
+        rows = await self.pool.fetch(
+            "SELECT id, org_id, username, email, display_name, role, created_at, updated_at FROM users WHERE org_id = $1 ORDER BY created_at",
+            org_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def delete_user(self, user_id) -> bool:
+        result = await self.pool.execute(
+            "DELETE FROM users WHERE id = $1",
+            user_id,
+        )
+        return result != "DELETE 0"
+
+    async def update_user(
+        self,
+        user_id: str,
+        *,
+        email: str | None = None,
+        display_name: str | None = None,
+        password_hash: str | None = None,
+    ) -> bool:
+        sets = []
+        args = []
+        idx = 1
+        if email is not None:
+            sets.append(f"email = ${idx}")
+            args.append(email)
+            idx += 1
+        if display_name is not None:
+            sets.append(f"display_name = ${idx}")
+            args.append(display_name)
+            idx += 1
+        if password_hash is not None:
+            sets.append(f"password_hash = ${idx}")
+            args.append(password_hash)
+            idx += 1
+        if not sets:
+            return False
+        args.append(user_id)
+        result = await self.pool.execute(
+            f"UPDATE users SET {', '.join(sets)} WHERE id = ${idx}",
+            *args,
+        )
+        return result != "UPDATE 0"
+
     # ── API key methods ───────────────────────────────────────────
 
     async def create_api_key(
@@ -1520,6 +1579,16 @@ def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
     def _fmt(dt: datetime | None) -> str | None:
         return dt.isoformat() if dt else None
 
+    def _parse(val):
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return {}
+
     return {
         "id": str(row["id"]),
         "org_id": row["org_id"],
@@ -1529,7 +1598,7 @@ def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
         "headline": row["headline"],
         "description": row["description"],
         "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
-        "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
+        "evidence": _parse(row["evidence"]),
         "status": row["status"],
         "confidence_score": row.get("confidence_score"),
         "confidence_level": row.get("confidence_level"),

@@ -34,7 +34,7 @@ export function TargetsView() {
           {targets && targets.length > 0 && (
             <select
               value={selectedTargetId ?? ''}
-              onChange={(e) => setSelectedTargetId(e.target.value || null)}
+              onChange={(e) => { setSelectedTargetId(e.target.value || null); }}
               className="rounded-md border border-hairline bg-canvas px-3 py-1.5 font-mono text-xs text-ink focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">Select target...</option>

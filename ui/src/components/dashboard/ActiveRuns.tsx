@@ -23,7 +23,7 @@ export const ActiveRuns: FC<{ refetchInterval: false | number }> = ({ refetchInt
     const id = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
     }, refetchInterval)
-    return () => clearInterval(id)
+    return () => { clearInterval(id); }
   }, [refetchInterval, queryClient])
 
   if (isRunningErr || isPendingErr) {

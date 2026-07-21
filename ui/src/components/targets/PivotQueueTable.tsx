@@ -44,7 +44,7 @@ export const PivotQueueTable: FC = () => {
         {STATUS_OPTIONS.map((opt) => (
           <button
             key={opt}
-            onClick={() => setStatusFilter(opt)}
+            onClick={() => { setStatusFilter(opt); }}
             className={`rounded-full px-3 py-1 font-mono text-[11px] tracking-wider uppercase transition-colors cursor-pointer ${
               statusFilter === opt
                 ? 'bg-canvas-soft text-ink'
@@ -56,7 +56,7 @@ export const PivotQueueTable: FC = () => {
         ))}
         <select
           value={entityTypeFilter}
-          onChange={(e) => setEntityTypeFilter(e.target.value)}
+          onChange={(e) => { setEntityTypeFilter(e.target.value); }}
           className="rounded border border-hairline bg-canvas-soft px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink"
           aria-label="Filter by entity type"
         >
@@ -67,7 +67,7 @@ export const PivotQueueTable: FC = () => {
         </select>
         <select
           value={pivotTypeFilter}
-          onChange={(e) => setPivotTypeFilter(e.target.value)}
+          onChange={(e) => { setPivotTypeFilter(e.target.value); }}
           className="max-w-56 rounded border border-hairline bg-canvas-soft px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink"
           aria-label="Filter by pivot type"
         >
@@ -78,7 +78,7 @@ export const PivotQueueTable: FC = () => {
         </select>
         <div className="flex-1" />
         <button
-          onClick={() => setShowTrigger(!showTrigger)}
+          onClick={() => { setShowTrigger(!showTrigger); }}
           className="rounded px-3 py-1 font-mono text-[11px] tracking-wider uppercase bg-teal-600 text-white hover:bg-teal-500 transition-colors cursor-pointer"
         >
           {showTrigger ? 'Cancel' : 'Trigger Pivot'}
@@ -86,7 +86,7 @@ export const PivotQueueTable: FC = () => {
       </div>
 
       {showTrigger && (
-        <TriggerForm onClose={() => setShowTrigger(false)} onSubmitted={() => { setShowTrigger(false); refetch() }} />
+        <TriggerForm onClose={() => { setShowTrigger(false); }} onSubmitted={() => { setShowTrigger(false); refetch() }} />
       )}
 
       {isError && (
@@ -192,7 +192,7 @@ const RetryButton: FC<{ jobId: string }> = ({ jobId }) => {
   const retry = useRetryPivot()
   return (
     <button
-      onClick={() => retry.mutate(jobId)}
+      onClick={() => { retry.mutate(jobId); }}
       disabled={retry.isPending}
       className="rounded px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase bg-canvas-soft text-mute hover:text-ink transition-colors cursor-pointer disabled:opacity-50"
     >
@@ -224,7 +224,7 @@ const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onC
           <input
             type="text"
             value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
+            onChange={(e) => { setTargetId(e.target.value); }}
             required
             className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
             placeholder="e.g. contoso"
@@ -234,7 +234,7 @@ const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onC
           <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Entity Type</label>
           <select
             value={entityType}
-            onChange={(e) => setEntityType(e.target.value)}
+            onChange={(e) => { setEntityType(e.target.value); }}
             className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
           >
             {ENTITY_TYPES.map((t) => (
@@ -247,7 +247,7 @@ const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onC
           <input
             type="text"
             value={entityValue}
-            onChange={(e) => setEntityValue(e.target.value)}
+            onChange={(e) => { setEntityValue(e.target.value); }}
             required
             className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
             placeholder="e.g. example.com"
@@ -257,7 +257,7 @@ const TriggerForm: FC<{ onClose: () => void; onSubmitted: () => void }> = ({ onC
           <label className="block text-[11px] font-mono uppercase tracking-wider text-mute mb-1">Pivot Type</label>
           <select
             value={pivotType}
-            onChange={(e) => setPivotType(e.target.value)}
+            onChange={(e) => { setPivotType(e.target.value); }}
             className="w-full bg-canvas border border-hairline rounded px-3 py-1.5 text-sm font-mono text-ink"
           >
             {PIVOT_TYPES.map((t) => (

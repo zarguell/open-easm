@@ -25,8 +25,8 @@ function getConnectedSet(selectedNodeId: string | null, links: GraphLink[]): Set
   if (!selectedNodeId) return new Set()
   const connected = new Set<string>([selectedNodeId])
   for (const link of links) {
-    const src = typeof link.source === 'object' ? (link.source as GraphNode).id : (link.source as string)
-    const tgt = typeof link.target === 'object' ? (link.target as GraphNode).id : (link.target as string)
+    const src = typeof link.source === 'object' ? (link.source).id : (link.source as string)
+    const tgt = typeof link.target === 'object' ? (link.target).id : (link.target as string)
     if (src === selectedNodeId) connected.add(tgt)
     if (tgt === selectedNodeId) connected.add(src)
   }
@@ -135,8 +135,8 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         .attr('font-size', 10)
         .text((d) => (d.entity_value.length > 20 ? d.entity_value.slice(0, 17) + '…' : d.entity_value))
 
-      nodeGroup.on('click', (_event, d) => onNodeClick(d.id))
-      nodeGroup.on('dblclick', (_event, d) => onNodeDoubleClick(d.id))
+      nodeGroup.on('click', (_event, d) => { onNodeClick(d.id); })
+      nodeGroup.on('dblclick', (_event, d) => { onNodeDoubleClick(d.id); })
 
       sim.on('tick', () => {
         linkSel
@@ -164,20 +164,20 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       g.selectAll<SVGLineElement, GraphLink>('line.edge')
         .attr('stroke', (d) => {
           if (!selectedNodeId) return colors.hairlineSoft
-          const src = typeof d.source === 'object' ? (d.source as GraphNode).id : (d.source as string)
-          const tgt = typeof d.target === 'object' ? (d.target as GraphNode).id : (d.target as string)
+          const src = typeof d.source === 'object' ? (d.source).id : (d.source as string)
+          const tgt = typeof d.target === 'object' ? (d.target).id : (d.target as string)
           return (src === selectedNodeId || tgt === selectedNodeId) ? colors.hairline : colors.hairlineSoft
         })
         .attr('stroke-opacity', (d) => {
           if (!selectedNodeId) return 0.6
-          const src = typeof d.source === 'object' ? (d.source as GraphNode).id : (d.source as string)
-          const tgt = typeof d.target === 'object' ? (d.target as GraphNode).id : (d.target as string)
+          const src = typeof d.source === 'object' ? (d.source).id : (d.source as string)
+          const tgt = typeof d.target === 'object' ? (d.target).id : (d.target as string)
           return (src === selectedNodeId || tgt === selectedNodeId) ? 1 : 0.15
         })
         .attr('stroke-width', (d) => {
           if (!selectedNodeId) return 1
-          const src = typeof d.source === 'object' ? (d.source as GraphNode).id : (d.source as string)
-          const tgt = typeof d.target === 'object' ? (d.target as GraphNode).id : (d.target as string)
+          const src = typeof d.source === 'object' ? (d.source).id : (d.source as string)
+          const tgt = typeof d.target === 'object' ? (d.target).id : (d.target as string)
           return (src === selectedNodeId || tgt === selectedNodeId) ? 2 : 1
         })
 
@@ -206,7 +206,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         }
       })
       observer.observe(container)
-      return () => observer.disconnect()
+      return () => { observer.disconnect(); }
     }, [])
 
     return (

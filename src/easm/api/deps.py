@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import Request
 
+from easm.api.authz import current_org_id, require_admin  # noqa: F401  # re-exports
+
 if TYPE_CHECKING:
     from easm.auth.config import AuthConfig
     from easm.config import Config

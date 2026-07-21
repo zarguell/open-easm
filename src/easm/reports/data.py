@@ -15,7 +15,8 @@ async def gather_report_data(target_id: str, store: Store) -> dict[str, Any]:
     assets = await store.list_asset_inventory(
         target_id=target_id, limit=5000,
     )
-    certs = await store.list_certificate_inventory(target_id=target_id, limit=5000)
+    certs_result = await store.list_certificate_inventory(target_id=target_id, limit=5000)
+    certs = certs_result["certificates"] if isinstance(certs_result, dict) else []
     cert_summary = await store.summarize_certificate_inventory(target_id=target_id)
     runs = await store.list_runs(target_id=target_id, limit=50)
     change_events = await store.list_asset_change_events(

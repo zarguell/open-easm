@@ -12,10 +12,12 @@ from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
 from easm.api.deps import set_auth_config, set_config, set_scheduler, set_store
+from easm.api.middleware.security import SecurityHeadersMiddleware
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
-from easm.pivot.handlers import configure_enrichment_keys
 from easm.db import close_pool, create_pool
+from easm.geoip import ensure_geoip_db
+from easm.pivot.handlers import configure_enrichment_keys
 from easm.queue import app as procrastinate_app
 from easm.runtime import configure_runtime
 from easm.scheduler import Scheduler
@@ -121,6 +123,8 @@ async def main() -> None:
 
     set_config(config)
     set_auth_config(config.auth)
+
+    ensure_geoip_db()
     set_store(store)
     set_scheduler(scheduler)
 
@@ -159,6 +163,10 @@ async def main() -> None:
         scheduler.setup_epss_refresh(pool)
 
     app = create_app()
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    from easm.api.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
 
     if mode != "web":
         for target in config.targets:

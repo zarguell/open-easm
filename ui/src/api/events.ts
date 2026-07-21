@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import api from './client'
+import type { PaginatedResponse } from '../lib/types'
 
 export interface EventSummary {
   id: string
@@ -15,6 +16,7 @@ export interface EventSummary {
 export interface EventsResponse {
   events: EventSummary[]
   next_cursor: string | null
+  total: number
 }
 
 export function useEvents(params: {
@@ -27,7 +29,7 @@ export function useEvents(params: {
 }) {
   return useQuery({
     queryKey: ['events', params],
-    queryFn: () => {
+    queryFn: async () => {
       const searchParams: Record<string, string> = {}
       if (params.target_id) searchParams.target_id = params.target_id
       if (params.source) searchParams.source = params.source
@@ -35,7 +37,8 @@ export function useEvents(params: {
       if (params.end) searchParams.end = params.end
       searchParams.limit = String(params.limit ?? 50)
       if (params.cursor) searchParams.cursor = params.cursor
-      return api.get('events', { searchParams }).json<EventsResponse>()
+      const resp = await api.get('events', { searchParams }).json<PaginatedResponse<EventSummary>>()
+      return { events: resp.items, next_cursor: resp.next_cursor, total: resp.total }
     },
   })
 }

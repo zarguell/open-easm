@@ -76,7 +76,7 @@ export function NotificationSettings() {
       </div>
 
       {channels.length === 0 ? (
-        <div className="rounded-xl border border-hairline bg-surface p-8 text-center">
+        <div className="rounded-xl border border-hairline bg-canvas-elevated p-8 text-center">
           <Radio className="w-10 h-10 text-mute mx-auto mb-3" />
           <p className="text-mute text-sm">No notification channels configured.</p>
           <p className="text-mute text-xs mt-2">
@@ -85,7 +85,7 @@ export function NotificationSettings() {
           </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-hairline bg-surface overflow-hidden">
+        <div className="rounded-xl border border-hairline bg-canvas-elevated overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

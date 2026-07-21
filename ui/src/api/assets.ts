@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import api from './client'
+import type { PaginatedResponse } from '../lib/types'
 
 export interface AssetInventoryItem {
   entity_id: string
@@ -69,8 +70,8 @@ function cleanParams(params: Record<string, string | number | boolean | undefine
 export function useAssetInventory(params: AssetInventoryParams = {}) {
   return useQuery({
     queryKey: ['asset-inventory', params],
-    queryFn: () =>
-      api
+    queryFn: async () => {
+      const resp = await api
         .get('assets/inventory', {
           searchParams: cleanParams({
             target_id: params.target_id,
@@ -81,7 +82,9 @@ export function useAssetInventory(params: AssetInventoryParams = {}) {
             offset: params.offset ?? 0,
           }),
         })
-        .json<AssetInventoryResponse>(),
+        .json<PaginatedResponse<AssetInventoryItem>>()
+      return { assets: resp.items, total_count: resp.total }
+    },
   })
 }
 

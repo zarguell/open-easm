@@ -1,6 +1,32 @@
+"""Pagination helpers: cursor-based query builder and a unified response envelope.
+
+The ``PaginatedResponse`` model is the standard envelope returned by every
+list endpoint in the API. ``PaginatedQuery`` is a small builder used by some
+routes to assemble parameterised cursor-based SQL.
+"""
+
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Standard envelope for all paginated list endpoints.
+
+    Fields:
+        items: The page of results (typed by the generic parameter).
+        total: Total number of records matching the current filters.
+        next_cursor: Opaque cursor for the next page, or ``None`` when the
+            end of the result set has been reached.
+    """
+
+    items: list[T]
+    total: int
+    next_cursor: str | None = None
 
 
 class PaginatedQuery:
@@ -18,6 +44,7 @@ class PaginatedQuery:
         cursor_field: str = "id",
         cursor_cast: str = "::uuid",
     ) -> None:
+        """Initialise the query builder with table and ordering defaults."""
         self._table = table
         self._fields = fields
         self._order_by = order_by
@@ -27,7 +54,7 @@ class PaginatedQuery:
         self._params: list[Any] = []
         self._idx = 0
 
-    def add_filter(self, column: str, value: Any, cast: str = "") -> PaginatedQuery:
+    def add_filter(self, column: str, value: Any, cast: str = "") -> PaginatedQuery:  # noqa: ANN401
         """Add an equality filter if value is not None/empty."""
         if value is None:
             return self
@@ -38,7 +65,7 @@ class PaginatedQuery:
         self._params.append(value)
         return self
 
-    def add_range(self, column: str, op: str, value: Any, cast: str = "") -> PaginatedQuery:
+    def add_range(self, column: str, op: str, value: Any, cast: str = "") -> PaginatedQuery:  # noqa: ANN401
         """Add a range filter (>=, <=, <, >) if value is not None/empty."""
         if value is None:
             return self
@@ -80,8 +107,9 @@ class PaginatedQuery:
             if self._conditions
             else ""
         )
+        # Parameterised via $N placeholders; values never interpolated.
         query = (
-            f"SELECT {self._fields} FROM {self._table} "
+            f"SELECT {self._fields} FROM {self._table} "  # noqa: S608
             f"{where} "
             f"ORDER BY {self._order_by} "
             f"LIMIT ${self._idx}"

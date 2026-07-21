@@ -65,7 +65,8 @@ async def test_list_certificate_inventory_orders_by_risk(db_pool):
     store = Store(db_pool)
     await _seed_certificates(store)
 
-    certificates = await store.list_certificate_inventory(target_id="target-1")
+    result = await store.list_certificate_inventory(target_id="target-1")
+    certificates = result["certificates"]
 
     assert [cert["risk"] for cert in certificates] == ["critical", "medium"]
     assert certificates[0]["deployment_state"] == "deployed"
@@ -115,7 +116,8 @@ async def test_certificate_inventory_prefers_analyzed_deployment_state(db_pool):
         },
     )
 
-    certificates = await store.list_certificate_inventory(target_id="target-1")
+    result = await store.list_certificate_inventory(target_id="target-1")
+    certificates = result["certificates"]
     summary = await store.summarize_certificate_inventory(target_id="target-1")
 
     assert certificates[0]["deployment_state"] == "unobserved_candidate"

@@ -8,13 +8,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from easm.api.deps import get_store
+from easm.api.deps import current_org_id, get_store
+from easm.api.pagination import PaginatedResponse
 from easm.api.sse import get_finding_stream
 from easm.correlation.rule import VALID_FINDING_STATUSES
 from easm.sla.models import compute_sla_status, compute_sla_summary
 from easm.store import Store
 
 router = APIRouter(tags=["findings"])
+
+
+@router.get("/findings/rules")
+async def list_finding_rules(store: Store = Depends(get_store)):
+    """Return distinct rule IDs from the findings table."""
+    return {"rules": await store.list_finding_rules()}
 
 
 class PatchFindingRequest(BaseModel):
@@ -85,10 +92,11 @@ async def list_findings(
     confidence_min: float | None = Query(None, description="Minimum confidence score (0-100)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
     results = await store.list_findings(
-        target_id=target_id, risk=risk, status=status,
+        org_id=org_id_, target_id=target_id, risk=risk, status=status,
         rule_id=rule_id, q=q, confidence_min=confidence_min,
         limit=limit, offset=offset,
     )
@@ -98,16 +106,20 @@ async def list_findings(
             first_seen_at=f.get("first_seen_at"),
             finding_status=f.get("status", "open"),
         ).to_dict()
-    return {"findings": results}
+    total = await store.count_findings(
+        target_id=target_id, risk=risk, status=status, rule_id=rule_id,
+    )
+    return PaginatedResponse(items=results, total=total)
 
 
 @router.get("/findings/sla-summary")
 async def sla_summary(
     target_id: str | None = Query(None),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
     findings = await store.list_findings(
-        target_id=target_id, limit=5000,
+        org_id=org_id_, target_id=target_id, limit=5000,
     )
     return compute_sla_summary(findings)
 

@@ -17,7 +17,7 @@ const riskVariant: Record<string, 'success' | 'error' | 'warning' | 'running' | 
 }
 
 function display(value: string | null | undefined): string {
-  return value || 'unknown'
+  return value ?? 'unknown'
 }
 
 function endpointLabel(endpoint: unknown): string {
@@ -43,7 +43,7 @@ export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certif
           Certificate
         </div>
         <h2 className="break-words text-base font-semibold text-ink">
-          {certificate.subject_cn || 'Unknown subject'}
+          {certificate.subject_cn ?? 'Unknown subject'}
           {certificate.subject_source === 'san' && (
             <span className="ml-2 inline-flex rounded-sm border border-hairline bg-canvas-soft px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-mute">
               from SAN
@@ -51,7 +51,7 @@ export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certif
           )}
         </h2>
         <p className="break-all font-mono text-xs text-mute" title={certificate.fingerprint_sha256 ?? undefined}>
-          {truncateMiddle(certificate.fingerprint_sha256 || certificate.entity_id, 72)}
+          {truncateMiddle(certificate.fingerprint_sha256 ?? certificate.entity_id, 72)}
         </p>
       </section>
 
@@ -66,7 +66,7 @@ export const CertificateDetailPanel: FC<CertificateDetailPanelProps> = ({ certif
 
       <section className="space-y-3 border-t border-hairline pt-4">
         <SectionTitle title="Issuer" />
-        <div className="text-sm text-body">{certificate.issuer_organization || 'unknown'}</div>
+        <div className="text-sm text-body">{certificate.issuer_organization ?? 'unknown'}</div>
       </section>
 
       <section className="space-y-3 border-t border-hairline pt-4">

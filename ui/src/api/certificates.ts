@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import api from './client'
+import type { PaginatedResponse } from '../lib/types'
 
 export interface CertificateInventoryItem {
   entity_id: string
@@ -35,6 +36,7 @@ export interface CertificateInventoryParams {
 
 export interface CertificateInventoryResponse {
   certificates: CertificateInventoryItem[]
+  total: number
 }
 
 function cleanParams(params: Record<string, string | number | undefined>) {
@@ -48,8 +50,8 @@ function cleanParams(params: Record<string, string | number | undefined>) {
 export function useCertificateInventory(params: CertificateInventoryParams = {}) {
   return useQuery({
     queryKey: ['certificate-inventory', params],
-    queryFn: () =>
-      api
+    queryFn: async () => {
+      const resp = await api
         .get('certificates/inventory', {
           searchParams: cleanParams({
             target_id: params.target_id,
@@ -59,7 +61,9 @@ export function useCertificateInventory(params: CertificateInventoryParams = {})
             offset: params.offset ?? 0,
           }),
         })
-        .json<CertificateInventoryResponse>(),
+        .json<PaginatedResponse<CertificateInventoryItem>>()
+      return { certificates: resp.items, total: resp.total }
+    },
   })
 }
 

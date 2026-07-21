@@ -12,6 +12,7 @@ import httpx
 import tldextract
 
 from easm.models import RunStatus
+from easm.network_guard import create_guard_client
 from easm.runtime import get_runtime
 
 if TYPE_CHECKING:
@@ -280,7 +281,8 @@ async def execute_runner(
                                 target.org_id, target.id, target=target,
                                 pool=store.pool, raw_event_id=_re["id"],
                             )
-                            _ents, _ = _runner_def.output_schema(_re["raw"])
+                            _raw_parsed = json.loads(_re["raw"]) if isinstance(_re["raw"], str) else _re["raw"]
+                            _ents, _ = _runner_def.output_schema(_raw_parsed)
                             _total_entities += len(_ents)
                         except Exception:
                             logger.debug(
@@ -348,6 +350,13 @@ async def _ingest_entities(
 ) -> None:
     ingest_pool = pool or getattr(store, "pool", None)
     _effective_seed_map = seed_map or (getattr(target, "_seed_map", None) if target else None)
+    # asyncpg returns JSONB as str, not dict — parse if needed
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("failed to parse raw event as JSON")
+            return
     try:
         entities, relationships = output_schema(raw)
     except Exception:
@@ -637,7 +646,7 @@ async def standard_http_run(
     closed automatically.
     """
     own_client = http_client is None
-    http = http_client or httpx.AsyncClient(timeout=timeout)
+    http = http_client or create_guard_client(timeout=timeout)
     inserted = deduped = errors = 0
 
     try:

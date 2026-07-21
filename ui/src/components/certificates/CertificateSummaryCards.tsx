@@ -2,7 +2,7 @@ import { type FC } from 'react'
 import { MetricCard } from '../shared/Card'
 import { colors } from '../../DESIGN_TOKENS'
 
-type CertificateSummary = {
+interface CertificateSummary {
   total?: number
   by_risk?: Record<string, number>
   by_deployment_state?: Record<string, number>
