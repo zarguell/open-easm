@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import asyncpg
 import httpx
 import procrastinate
 
@@ -160,7 +161,7 @@ async def execute_pivot(
                                 ec.attributes, raw_event_id=re_id,
                                 discovery_session_id=discovery_session_id,
                                 discovery_run_id=run_id,
-                                discovery_pivot_id=job_id,
+                                discovery_pivot_id=None,
                                 parent_entity_id=(
                                     uuid.UUID(entity_id) if entity_id else None
                                 ),
@@ -192,9 +193,10 @@ async def execute_pivot(
                                                 break
                                         except ValueError:
                                             continue
-                                except Exception:
+                                except (asyncpg.PostgresError, ValueError, KeyError) as e:
                                     logger.debug(
-                                        "ip range association failed", exc_info=True,
+                                        "ip range association failed",
+                                        exc_info=True, extra={"error": str(e)},
                                     )
 
                             if ec.entity_type == "ip":
@@ -218,9 +220,10 @@ async def execute_pivot(
                                             "WHERE id = $2",
                                             json.dumps(attrs), eid,
                                         )
-                                except Exception:
+                                except (asyncpg.PostgresError, ValueError, KeyError, TypeError) as e:
                                     logger.debug(
-                                        "geo enrichment failed", exc_info=True,
+                                        "geo enrichment failed",
+                                        exc_info=True, extra={"error": str(e)},
                                     )
 
                             try:
@@ -250,10 +253,10 @@ async def execute_pivot(
                                         f"{ec.entity_type} {ec.value}"
                                     ),
                                 )
-                            except Exception:
+                            except (asyncpg.PostgresError, ValueError, KeyError) as e:
                                 logger.debug(
                                     "asset profile update from pivot failed",
-                                    exc_info=True,
+                                    exc_info=True, extra={"error": str(e)},
                                 )
 
                             if is_new and target_config:
@@ -266,15 +269,17 @@ async def execute_pivot(
                                         parent_entity_id=entity_id,
                                         discovery_session_id=discovery_session_id,
                                     )
-                                except Exception:
+                                except (asyncpg.PostgresError, ValueError) as e:
                                     errors += 1
                                     logger.debug(
-                                        "recursive pivot failed", exc_info=True,
+                                        "recursive pivot failed",
+                                        exc_info=True, extra={"error": str(e)},
                                     )
-                        except Exception:
+                        except (asyncpg.PostgresError, ValueError, KeyError) as e:
                             errors += 1
-                            logger.debug(
-                                "entity upsert from pivot failed", exc_info=True,
+                            logger.warning(
+                                "entity upsert from pivot failed: type=%s value=%s error=%s",
+                                ec.entity_type, ec.value, e,
                             )
 
                     for rc in rels:
@@ -286,22 +291,50 @@ async def execute_pivot(
                                 rc.relationship_type, rc.relationship_source,
                                 evidence_raw_event_id=re_id,
                             )
-                        except Exception:
+                        except (asyncpg.PostgresError, ValueError) as e:
                             errors += 1
-                            logger.debug(
-                                "relationship upsert from pivot failed",
-                                exc_info=True,
+                            logger.warning(
+                                "relationship upsert from pivot failed: %s", e,
                             )
-                except Exception:
+                except (ValueError, KeyError, TypeError) as e:
                     errors += 1
                     logger.debug(
-                        "output schema failed for pivot result", exc_info=True,
+                        "output schema failed for pivot result",
+                        exc_info=True, extra={"error": str(e)},
                     )
 
         if errors:
             logger.warning(
                 "pivot completed with %d materialization errors", errors,
             )
+
+        # Run correlation engine to generate findings from updated entity attributes
+        if not errors:
+            try:
+                from pathlib import Path
+                from easm.correlation.engine import CorrelationEngine
+                from easm.correlation.loader import load_rules_from_dir
+                _corr_dir = Path(__file__).parent.parent.parent.parent / "correlations"
+                if _corr_dir.exists():
+                    _rules = load_rules_from_dir(_corr_dir)
+                    if _rules:
+                        _engine = CorrelationEngine(pool)
+                        _findings = await _engine.evaluate_rules(
+                            _rules, org_id, target_id,
+                        )
+                        for _f in _findings:
+                            try:
+                                await store.create_finding(_f)
+                            except (asyncpg.PostgresError, ValueError) as e:
+                                logger.debug(
+                                    "failed to save correlation finding",
+                                    exc_info=True, extra={"error": str(e)},
+                                )
+            except (asyncpg.PostgresError, ValueError, OSError) as e:
+                logger.debug(
+                    "correlation engine failed",
+                    exc_info=True, extra={"error": str(e)},
+                )
 
         if created_pivot_run and run_id:
             run_end = datetime.now(UTC)

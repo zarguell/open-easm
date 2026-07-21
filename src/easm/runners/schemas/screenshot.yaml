@@ -1,0 +1,10 @@
+# Schema: screenshot → hostname entities
+source: screenshot
+entities:
+  - type: hostname
+    value_from: hostname
+    normalize: true
+    attributes:
+      source: screenshot
+      screenshot_path: "$raw.screenshot_path"
+relations: []

@@ -1,0 +1,10 @@
+# Schema: geoip → IP entities with geographic enrichment
+source: geoip
+entities:
+  - type: ip
+    value_from: ip
+    normalize: true
+    attributes:
+      source: geoip
+      geo: "$raw.geo"
+relations: []

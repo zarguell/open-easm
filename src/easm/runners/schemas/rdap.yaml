@@ -1,0 +1,10 @@
+# Schema: rdap — ASN WHOIS passthrough
+source: rdap
+entities:
+  - type: asn
+    value_from: asn
+    normalize: true
+    attributes:
+      source: rdap
+      rdap: "$raw.rdap"
+relations: []

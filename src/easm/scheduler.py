@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import asyncpg
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
@@ -109,8 +110,10 @@ class Scheduler:
         async def _refresh() -> None:
             try:
                 await refresh_kev_cache(pool)
-            except Exception:
-                logger.exception("kev refresh failed")
+            except (asyncpg.PostgresError, OSError, ValueError) as e:
+                logger.exception(
+                    "kev refresh failed", extra={"error": str(e)},
+                )
 
         self._scheduler.add_job(
             _refresh,
@@ -129,8 +132,10 @@ class Scheduler:
         async def _refresh() -> None:
             try:
                 await refresh_epss_cache(pool)
-            except Exception:
-                logger.exception("epss refresh failed")
+            except (asyncpg.PostgresError, OSError, ValueError) as e:
+                logger.exception(
+                    "epss refresh failed", extra={"error": str(e)},
+                )
 
         self._scheduler.add_job(
             _refresh,

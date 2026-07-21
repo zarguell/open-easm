@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 
+import asyncpg
 from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,11 @@ def check_binaries() -> dict:
                     [binary, "--version"], capture_output=True, text=True, timeout=5
                 )
                 version_str = version.stdout.strip() or version.stderr.strip() or None
-            except Exception:
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+                logger.debug(
+                    "binary version probe failed",
+                    extra={"binary": binary, "error": str(e)},
+                )
                 version_str = None
             results[binary] = {"path": path, "version": version_str, "ok": True}
         else:
@@ -51,14 +56,18 @@ async def healthz():
         store = get_store()
         scheduler = get_scheduler()
     except RuntimeError:
-        pass
+        logger.debug("store/scheduler not yet initialized at health check")
 
     db_ok = False
     if store:
         try:
             await store.pool.fetchval("SELECT 1")
             db_ok = True
-        except Exception:
+        except (asyncpg.PostgresError, OSError) as e:
+            logger.warning(
+                "health check database probe failed",
+                exc_info=True, extra={"error": str(e)},
+            )
             db_ok = False
 
     scheduler_ok = (

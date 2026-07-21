@@ -24,7 +24,7 @@ def test_simulated_subfinder_ingests_entities_and_calls_pivot_enqueue(
             allow_subprocess=False,
         )
     )
-    monkeypatch.setattr("easm.runners.engine.get_runtime", lambda: runtime)
+    monkeypatch.setattr("easm.runners.subprocess_runner.get_runtime", lambda: runtime)
     target = TargetConfig(
         id="sim",
         name="Simulation",

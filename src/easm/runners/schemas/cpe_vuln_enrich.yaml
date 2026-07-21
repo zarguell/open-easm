@@ -1,0 +1,14 @@
+# Schema: cpe_vuln_enrich → entity with CPE/CVE enrichment data
+source: cpe_vuln_enrich
+entities:
+  - type: hostname
+    value_from: entity_value
+    normalize: true
+    attributes:
+      source: cpe_vuln_enrich
+      computed_cpes: "$raw.computed_cpes"
+      matched_cves: "$raw.matched_cves"
+      kev_count: "$raw.kev_count"
+      total_cves: "$raw.total_cves"
+      risk: "$raw.risk"
+relations: []

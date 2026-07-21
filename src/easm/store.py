@@ -1,27 +1,42 @@
+"""Backward-compatible store facade.
+
+Originally a 1700+ LOC monolith, this module now delegates to per-domain
+stores in :mod:`easm.stores`. The :class:`Store` class preserves the
+legacy method surface so existing call sites continue to work without
+modification.
+
+Module-level helpers (``_compute_event_hash``, ``_canonical_json``) are
+preserved because a handful of callers (legacy pivot worker, runner
+adapters, scheduler tasks) import them directly.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
-
-from easm._compat import uuid7
-from typing import Any, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 import asyncpg
 
-from easm.assets.change import build_asset_change_event
-from easm.assets.profile import (
-    build_asset_evidence,
-    build_asset_profile,
-    merge_asset_profiles,
-)
-from easm.assets.scoring import score_asset_exposure
-from easm.correlation.rule import Finding
-from easm.entity_store import deep_merge_attributes, normalize_entity_value
+from easm.stores.asset_store import AssetStore
+from easm.stores.auth_store import AuthStore
+from easm.stores.certificate_store import CertificateStore
+from easm.stores.config_store import ConfigStore
+from easm.stores.entity_store import EntityStore
+from easm.stores.finding_store import FindingStore
+from easm.stores.run_store import RunStore
+from easm.stores.triage_store import TriageStore
+
+if TYPE_CHECKING:
+    from easm.correlation.rule import Finding
 
 logger = logging.getLogger(__name__)
+
+
+# ── Module-level helpers (kept for legacy callers) ───────────────────
 
 
 def _canonical_json(obj: Any) -> str:
@@ -33,131 +48,37 @@ def _compute_event_hash(org_id: str, target_id: str, source: str, raw: Any) -> s
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _asset_profile_attribute_sources(
-    attributes: dict[str, Any],
-    source: str,
-) -> list[str]:
-    sources = []
-    if source and source != "unknown":
-        sources.append(source)
-    attribute_source = attributes.get("source")
-    if isinstance(attribute_source, str):
-        if attribute_source != "unknown":
-            sources.append(attribute_source)
-    elif isinstance(attribute_source, list):
-        sources.extend(
-            item
-            for item in attribute_source
-            if isinstance(item, str) and item != "unknown"
-        )
-    return sources
-
-
-def _prefer_higher_asset_risk(
-    existing: dict[str, Any],
-    incoming: dict[str, Any],
-) -> dict[str, Any]:
-    existing_score = int(existing.get("score", 0) or 0)
-    incoming_score = int(incoming.get("score", 0) or 0)
-    if incoming_score > existing_score:
-        return incoming
-    return {
-        "score": existing_score,
-        "level": existing.get("level", "none"),
-        "reasons": list(
-            dict.fromkeys(
-                [
-                    *existing.get("reasons", []),
-                    *incoming.get("reasons", []),
-                ]
-            )
-        ),
-        **(
-            {"confidence_score": incoming["confidence_score"]}
-            if "confidence_score" in incoming
-            else {}
-        ),
-    }
-
-
 class Store:
+    """Facade over the domain stores.
+
+    Each domain (``runs``, ``entities``, ``findings``, ``assets``,
+    ``certificates``, ``auth``, ``config``, ``triage``) is implemented by
+    a dedicated ``BaseStore`` subclass. ``Store`` instantiates each one
+    and exposes both the sub-store attribute (``store.entities.upsert_entity``)
+    and a flat delegator method (``store.upsert_entity``) for backward
+    compatibility.
+
+    Raw-event methods (``insert_raw_event``, ``list_events``, ``get_event``,
+    ``count_events``) are owned here because they form a small audit-log
+    surface that does not belong to any single domain store.
+    """
+
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
+        # Domain stores — new code should target these directly.
+        self.runs = RunStore(pool)
+        self.entities = EntityStore(pool)
+        self.findings = FindingStore(pool)
+        self.assets = AssetStore(pool)
+        self.certificates = CertificateStore(pool)
+        self.auth = AuthStore(pool)
+        self.config = ConfigStore(pool)
+        self.triage = TriageStore(pool)
 
-    async def create_run(
-        self,
-        target_id: str,
-        source: str,
-        trigger_type: str,
-        scheduled_for: datetime | None = None,
-        org_id: str = "default",
-    ) -> uuid.UUID:
-        discovery_session_id = uuid7()
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO runs (org_id, target_id, source, trigger_type, status, scheduled_for, discovery_session_id)
-            VALUES ($1, $2, $3, $4, 'pending', $5, $6)
-            RETURNING id
-            """,
-            org_id,
-            target_id,
-            source,
-            trigger_type,
-            scheduled_for,
-            discovery_session_id,
-        )
-        assert row is not None
-        return cast(uuid.UUID, row["id"])
-
-    async def mark_run_started(self, run_id: uuid.UUID, started_at: datetime) -> None:
-        await self.pool.execute(
-            "UPDATE runs SET status = 'running', started_at = $1 WHERE id = $2",
-            started_at,
-            run_id,
-        )
-
-    async def mark_run_finished(
-        self,
-        run_id: uuid.UUID,
-        status: str,
-        finished_at: datetime,
-        duration_ms: int,
-        inserted_count: int,
-        deduped_count: int,
-        error_count: int,
-        error_message: str | None = None,
-        metadata: dict[str, Any] | None = None,
-        logs: str | None = None,
-    ) -> None:
-        meta = json.dumps(metadata or {})
-        await self.pool.execute(
-            """
-            UPDATE runs
-            SET status = $1,
-                finished_at = $2,
-                duration_ms = $3,
-                inserted_count = $4,
-                deduped_count = $5,
-                error_count = $6,
-                error_message = $7,
-                metadata = $8::jsonb,
-                logs = $9
-            WHERE id = $10
-            """,
-            status,
-            finished_at,
-            duration_ms,
-            inserted_count,
-            deduped_count,
-            error_count,
-            error_message,
-            meta,
-            logs,
-            run_id,
-        )
+    # ── Raw events (audit log) — owned here, not delegated ───────────
 
     async def insert_raw_event(
-        self, org_id: str, target_id: str, source: str, raw: Any, run_id: uuid.UUID
+        self, org_id: str, target_id: str, source: str, raw: Any, run_id: uuid.UUID,
     ) -> uuid.UUID | None:
         """Insert a raw event. Returns the raw_event UUID on success, or ``None`` on dedup."""
         event_hash = _compute_event_hash(org_id, target_id, source, raw)
@@ -169,16 +90,11 @@ class Store:
             ON CONFLICT (event_hash) DO NOTHING
             RETURNING id
             """,
-            org_id,
-            target_id,
-            source,
-            raw_json,
-            event_hash,
-            run_id,
+            org_id, target_id, source, raw_json, event_hash, run_id,
         )
         if row is None:
             return None
-        return cast(uuid.UUID, row["id"])
+        return row["id"]
 
     async def list_events(
         self,
@@ -266,789 +182,6 @@ class Store:
             "run_id": str(row["run_id"]),
         }
 
-    async def count_active_runs(self, target_id: str, source_name: str) -> int:
-        """Count runs that are still in progress for a given target and source."""
-        row = await self.pool.fetchval(
-            """
-            SELECT COUNT(*) FROM runs
-            WHERE target_id = $1 AND source = $2 AND status = 'running'
-            """,
-            target_id,
-            source_name,
-        )
-        return row or 0
-
-    async def list_runs(
-        self,
-        org_id: str = "default",
-        target_id: str | None = None,
-        source: str | None = None,
-        status: str | None = None,
-        trigger_type: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        conditions: list[str] = ["org_id = $1"]
-        params: list[Any] = [org_id]
-        idx = 1
-
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if source:
-            idx += 1
-            conditions.append(f"source = ${idx}")
-            params.append(source)
-        if status:
-            idx += 1
-            conditions.append(f"status = ${idx}")
-            params.append(status)
-        if trigger_type:
-            idx += 1
-            conditions.append(f"trigger_type = ${idx}")
-            params.append(trigger_type)
-        if start:
-            idx += 1
-            conditions.append(f"started_at >= ${idx}")
-            params.append(start)
-        if end:
-            idx += 1
-            conditions.append(f"started_at <= ${idx}")
-            params.append(end)
-
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        idx += 1
-        idx += 1
-        query = f"""
-            SELECT id, target_id, source, trigger_type, status, scheduled_for,
-                   started_at, finished_at, duration_ms, inserted_count,
-                   deduped_count, error_count, error_message, metadata,
-                   discovery_session_id, new_entity_count, total_entity_count, logs
-            FROM runs
-            {where}
-            ORDER BY started_at DESC NULLS LAST
-            LIMIT ${idx - 1} OFFSET ${idx}
-        """
-        params.extend([limit, offset])
-        rows = await self.pool.fetch(query, *params)
-        return [_row_to_run_dict(r) for r in rows]
-
-    async def get_run(self, run_id: uuid.UUID) -> dict[str, Any] | None:
-        row = await self.pool.fetchrow(
-            """
-            SELECT id, target_id, source, trigger_type, status, scheduled_for,
-                   started_at, finished_at, duration_ms, inserted_count,
-                   deduped_count, error_count, error_message, metadata,
-                   discovery_session_id, new_entity_count, total_entity_count, logs
-            FROM runs WHERE id = $1
-            """,
-            run_id,
-        )
-        if row is None:
-            return None
-        return _row_to_run_dict(row)
-
-    async def save_config_snapshot(self, raw_config: dict[str, Any]) -> None:
-        raw_json = _canonical_json(raw_config)
-        config_hash = hashlib.sha256(raw_json.encode()).hexdigest()
-        await self.pool.execute(
-            """
-            INSERT INTO config_snapshots (config_hash, raw_config)
-            VALUES ($1, $2::jsonb)
-            ON CONFLICT (config_hash) DO NOTHING
-            """,
-            config_hash,
-            json.dumps(raw_config),
-        )
-
-    # ── Entity methods ────────────────────────────────────────────────
-
-    async def upsert_entity(
-        self,
-        org_id: str,
-        target_id: str,
-        entity_type: str,
-        entity_value: str,
-        new_attributes: dict,
-        raw_event_id: uuid.UUID | None = None,
-        discovery_session_id: uuid.UUID | None = None,
-        discovery_run_id: uuid.UUID | None = None,
-        discovery_pivot_id: uuid.UUID | None = None,
-        parent_entity_id: uuid.UUID | None = None,
-    ) -> tuple[uuid.UUID, bool]:
-        normalized_value = normalize_entity_value(entity_type, entity_value)
-        new_attributes.setdefault("triage_state", "discovered")
-
-        # Use atomic upsert to avoid race condition between SELECT and INSERT
-        result = await self.pool.fetchrow(
-            """
-            INSERT INTO entities (org_id, target_id, entity_type, entity_value, attributes,
-                                  first_seen_at, last_seen_at, is_first_discovery,
-                                  discovery_session_id, discovery_run_id, discovery_pivot_id,
-                                  parent_entity_id)
-            VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW(), TRUE, $6, $7, $8, $9)
-            ON CONFLICT (org_id, target_id, entity_type, entity_value) DO UPDATE
-            SET last_seen_at = NOW(),
-                is_first_discovery = FALSE,
-                parent_entity_id = COALESCE(entities.parent_entity_id, EXCLUDED.parent_entity_id)
-            RETURNING id, (xmax = 0) AS is_insert
-            """,
-            org_id, target_id, entity_type, normalized_value,
-            json.dumps(new_attributes),
-            discovery_session_id, discovery_run_id, discovery_pivot_id,
-            parent_entity_id,
-        )
-
-        entity_id = result["id"]
-        is_insert = result["is_insert"]
-
-        if not is_insert:
-            # Merge attributes for existing entity
-            existing = await self.pool.fetchrow(
-                "SELECT attributes FROM entities WHERE id = $1",
-                entity_id,
-            )
-            if existing:
-                existing_attrs = existing["attributes"]
-                if isinstance(existing_attrs, str):
-                    existing_attrs = json.loads(existing_attrs)
-                merged = deep_merge_attributes(existing_attrs, new_attributes)
-                await self.pool.execute(
-                    "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
-                    json.dumps(merged), entity_id,
-                )
-
-        if raw_event_id is not None:
-            try:
-                await self.pool.execute(
-                    "INSERT INTO entity_raw_event_links (entity_id, raw_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                    entity_id, raw_event_id,
-                )
-            except Exception:
-                logger.debug("raw event link insert skipped for entity %s", entity_id)
-
-        return entity_id, is_insert
-
-    async def update_entity_asset_profile(
-        self,
-        entity_id: uuid.UUID,
-        asset_profile: dict[str, Any],
-    ) -> None:
-        await self.pool.execute(
-            """
-            UPDATE entities
-            SET attributes = jsonb_set(
-                COALESCE(attributes, '{}'::jsonb),
-                '{asset_profile}',
-                $1::jsonb,
-                true
-            )
-            WHERE id = $2
-            """,
-            json.dumps(asset_profile),
-            entity_id,
-        )
-
-    async def apply_asset_profile_for_entity(
-        self,
-        *,
-        org_id: str,
-        target_id: str,
-        entity_id: uuid.UUID,
-        entity_type: str,
-        entity_value: str,
-        source: str,
-        raw_event_id: uuid.UUID | None,
-        target_domains: list[str],
-        target_asns: list[str] | None = None,
-        summary: str,
-    ) -> None:
-        row = await self.pool.fetchrow(
-            "SELECT attributes FROM entities WHERE id = $1",
-            entity_id,
-        )
-        if row is None:
-            return
-
-        attributes = row["attributes"] or {}
-        if isinstance(attributes, str):
-            attributes = json.loads(attributes)
-
-        observed_at = datetime.now(UTC)
-        evidence = build_asset_evidence(
-            source=source,
-            raw_event_id=str(raw_event_id) if raw_event_id is not None else None,
-            observed_at=observed_at,
-            summary=summary,
-        )
-        existing_profile = attributes.get("asset_profile")
-        existing_sources = _asset_profile_attribute_sources(attributes, source)
-        incoming_profile = build_asset_profile(
-            entity_type=entity_type,
-            entity_value=entity_value,
-            target_domains=target_domains,
-            target_asns=target_asns or [],
-            sources=existing_sources,
-            evidence=[evidence],
-            observed_at=observed_at,
-        )
-        profile = (
-            merge_asset_profiles(existing_profile, incoming_profile)
-            if isinstance(existing_profile, dict)
-            else incoming_profile
-        )
-
-        scored_attributes = {**attributes, "asset_profile": profile}
-        findings = await self._findings_for_entity(target_id, entity_id)
-        risk = score_asset_exposure(
-            {
-                "type": entity_type,
-                "value": entity_value,
-                "attributes": scored_attributes,
-            },
-            findings,
-        )
-        existing_risk = (
-            existing_profile.get("risk", {})
-            if isinstance(existing_profile, dict)
-            else {}
-        )
-        profile["risk"] = _prefer_higher_asset_risk(existing_risk, risk)
-
-        await self.update_entity_asset_profile(entity_id, profile)
-        await self.record_asset_change_event(
-            org_id=org_id,
-            target_id=target_id,
-            entity_id=entity_id,
-            change_type=(
-                "asset_observed"
-                if isinstance(existing_profile, dict)
-                else "asset_discovered"
-            ),
-            summary=summary,
-            before_state=existing_profile if isinstance(existing_profile, dict) else None,
-            after_state=profile,
-            evidence=[evidence],
-            source=source,
-            observed_at=observed_at,
-        )
-
-    async def _findings_for_entity(
-        self,
-        target_id: str,
-        entity_id: uuid.UUID,
-    ) -> list[dict[str, Any]]:
-        try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """SELECT * FROM findings
-                       WHERE target_id = $1 AND $2 = ANY(entity_ids)
-                       ORDER BY created_at DESC""",
-                    target_id, str(entity_id),
-                )
-            return [dict(r) for r in rows]
-        except Exception:
-            logger.debug("finding lookup skipped for asset profile", exc_info=True)
-            return []
-
-    async def upsert_relationship(
-        self,
-        org_id: str,
-        source_entity_id: uuid.UUID,
-        target_entity_id: uuid.UUID,
-        relationship_type: str,
-        relationship_source: str,
-        evidence_raw_event_id: uuid.UUID | None = None,
-        runner: str | None = None,
-    ) -> None:
-        await self.pool.execute(
-            """
-            INSERT INTO entity_relationships (org_id, source_entity_id, target_entity_id,
-                                             relationship_type, relationship_source,
-                                             evidence_raw_event_id, runner)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (org_id, source_entity_id, target_entity_id, relationship_type)
-            DO UPDATE SET last_seen_at = NOW()
-            """,
-            org_id, source_entity_id, target_entity_id,
-            relationship_type, relationship_source,
-            evidence_raw_event_id, runner,
-        )
-
-    async def upsert_relationship_by_value(
-        self,
-        org_id: str,
-        target_id: str,
-        source_type: str,
-        source_value: str,
-        target_type: str,
-        target_value: str,
-        relationship_type: str,
-        relationship_source: str,
-        evidence_raw_event_id: uuid.UUID | None = None,
-        runner: str | None = None,
-    ) -> None:
-        """Like :meth:`upsert_relationship` but resolves entity UUIDs by type+value."""
-        src = normalize_entity_value(source_type, source_value)
-        tgt = normalize_entity_value(target_type, target_value)
-
-        source_row = await self.pool.fetchrow(
-            "SELECT id FROM entities "
-            "WHERE org_id=$1 AND target_id=$2 "
-            "AND entity_type=$3 AND entity_value=$4",
-            org_id, target_id, source_type, src,
-        )
-        target_row = await self.pool.fetchrow(
-            "SELECT id FROM entities "
-            "WHERE org_id=$1 AND target_id=$2 "
-            "AND entity_type=$3 AND entity_value=$4",
-            org_id, target_id, target_type, tgt,
-        )
-        if source_row and target_row:
-            await self.upsert_relationship(
-                org_id,
-                source_row["id"],
-                target_row["id"],
-                relationship_type,
-                relationship_source,
-                evidence_raw_event_id=evidence_raw_event_id,
-                runner=runner,
-            )
-        else:
-            import logging as _logging
-            _logging.getLogger(__name__).debug(
-                "upsert_relationship_by_value skipped: "
-                "source=%s/%s found=%s, target=%s/%s found=%s",
-                source_type, src, source_row is not None,
-                target_type, tgt, target_row is not None,
-            )
-
-    async def record_asset_change_event(
-        self,
-        target_id: str,
-        entity_id: uuid.UUID,
-        change_type: str,
-        summary: str,
-        before_state: dict[str, Any] | None = None,
-        after_state: dict[str, Any] | None = None,
-        evidence: list[dict[str, Any]] | None = None,
-        source: str | None = None,
-        observed_at: datetime | None = None,
-        org_id: str = "default",
-    ) -> uuid.UUID:
-        event = build_asset_change_event(
-            change_type=change_type,
-            summary=summary,
-            before_state=before_state,
-            after_state=after_state,
-            evidence=evidence,
-            source=source,
-            observed_at=observed_at,
-        )
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO asset_change_events (
-                org_id, target_id, entity_id, change_type, summary, before_state,
-                after_state, evidence, source, observed_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz)
-            RETURNING id
-            """,
-            org_id,
-            target_id,
-            entity_id,
-            event["change_type"],
-            event["summary"],
-            json.dumps(event["before_state"]),
-            json.dumps(event["after_state"]),
-            json.dumps(event["evidence"]),
-            event["source"],
-            datetime.fromisoformat(event["observed_at"]),
-        )
-        assert row is not None
-        return cast(uuid.UUID, row["id"])
-
-    async def list_asset_change_events(
-        self,
-        target_id: str | None = None,
-        entity_id: uuid.UUID | None = None,
-        org_id: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 500))
-        offset = max(0, offset)
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
-
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if entity_id:
-            idx += 1
-            conditions.append(f"entity_id = ${idx}")
-            params.append(entity_id)
-        if org_id:
-            idx += 1
-            conditions.append(f"org_id = ${idx}")
-            params.append(org_id)
-
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        idx += 1
-        idx += 1
-        rows = await self.pool.fetch(
-            f"""
-            SELECT id, org_id, target_id, entity_id, change_type, summary, before_state,
-                   after_state, evidence, source, observed_at, created_at
-            FROM asset_change_events
-            {where}
-            ORDER BY observed_at DESC, id DESC
-            LIMIT ${idx - 1} OFFSET ${idx}
-            """,
-            *params,
-            limit,
-            offset,
-        )
-        return [_row_to_asset_change_event_dict(row) for row in rows]
-
-    async def list_asset_inventory(
-        self,
-        target_id: str | None = None,
-        confidence_level: str | None = None,
-        risk_level: str | None = None,
-        feed_eligible: bool | None = None,
-        limit: int = 100,
-        offset: int = 0,
-        org_id: str = "default",
-    ) -> dict[str, Any]:
-        limit = max(1, min(limit, 5000))
-        offset = max(0, offset)
-        conditions = ["org_id = $1", "attributes ? 'asset_profile'"]
-        params: list[Any] = [org_id]
-        idx = 2
-
-        if target_id:
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-            idx += 1
-        if confidence_level:
-            conditions.append(f"attributes #>> '{{asset_profile,confidence,level}}' = ${idx}")
-            params.append(confidence_level)
-            idx += 1
-        if risk_level:
-            conditions.append(f"attributes #>> '{{asset_profile,risk,level}}' = ${idx}")
-            params.append(risk_level)
-            idx += 1
-        if feed_eligible is not None:
-            conditions.append(
-                "COALESCE("
-                "(attributes #>> '{asset_profile,source_of_truth_feed,eligible}')::boolean, "
-                "(attributes #>> '{asset_profile,feed,eligible}')::boolean, "
-                "false"
-                ") "
-                f"= ${idx}"
-            )
-            params.append(feed_eligible)
-            idx += 1
-
-        params.extend([limit, offset])
-        rows = await self.pool.fetch(
-            f"""
-            SELECT
-                COUNT(*) OVER() AS total_count,
-                id AS entity_id,
-                org_id,
-                target_id,
-                entity_type,
-                entity_value,
-                first_seen_at,
-                last_seen_at,
-                (attributes #>> '{{asset_profile,confidence,score}}')::numeric AS confidence_score,
-                attributes #>> '{{asset_profile,confidence,level}}' AS confidence_level,
-                (attributes #>> '{{asset_profile,risk,score}}')::numeric AS risk_score,
-                attributes #>> '{{asset_profile,risk,level}}' AS risk_level,
-                COALESCE(
-                    (attributes #>> '{{asset_profile,source_of_truth_feed,eligible}}')::boolean,
-                    (attributes #>> '{{asset_profile,feed,eligible}}')::boolean,
-                    false
-                ) AS feed_eligible,
-                attributes #> '{{asset_profile,sources}}' AS sources,
-                jsonb_array_length(COALESCE(attributes #> '{{asset_profile,evidence}}', '[]'::jsonb)) AS evidence_count
-            FROM entities
-            WHERE {' AND '.join(conditions)}
-            ORDER BY
-                CASE attributes #>> '{{asset_profile,risk,level}}'
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2
-                    WHEN 'medium' THEN 3
-                    WHEN 'low' THEN 4
-                    WHEN 'info' THEN 5
-                    ELSE 6
-                END,
-                (attributes #>> '{{asset_profile,confidence,score}}')::numeric DESC NULLS LAST,
-                last_seen_at DESC NULLS LAST,
-                id DESC
-            LIMIT ${idx} OFFSET ${idx + 1}
-            """,
-            *params,
-        )
-        total_count = rows[0]["total_count"] if rows else 0
-        entities = [_row_to_asset_inventory_dict(row) for row in rows]
-        return {"entities": entities, "total_count": total_count}
-
-    async def get_triage_inbox(
-        self,
-        org_id: str,
-        target_id: str | None = None,
-        entity_type: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[dict]:
-        where_clauses = ["e.org_id = $1", "e.attributes->>'triage_state' = 'discovered'"]
-        params: list[Any] = [org_id]
-        idx = 2
-        if target_id:
-            where_clauses.append(f"e.target_id = ${idx}")
-            params.append(target_id)
-            idx += 1
-        if entity_type:
-            where_clauses.append(f"e.entity_type = ${idx}")
-            params.append(entity_type)
-            idx += 1
-        params.append(limit)
-        params.append(offset)
-        rows = await self.pool.fetch(
-            f"""SELECT e.*, count(*) OVER() as total_count
-                FROM entities e
-                WHERE {' AND '.join(where_clauses)}
-                ORDER BY e.first_seen_at DESC
-                LIMIT ${idx} OFFSET ${idx + 1}""",
-            *params,
-        )
-        return [dict(r) for r in rows]
-
-    async def set_entity_triage_state(
-        self,
-        org_id: str,
-        entity_id: uuid.UUID,
-        triage_state: str,
-    ) -> bool:
-        valid_states = {"discovered", "adopted", "dismissed", "active"}
-        if triage_state not in valid_states:
-            return False
-        result = await self.pool.execute(
-            """UPDATE entities SET attributes = jsonb_set(attributes, '{triage_state}', $1::jsonb)
-               WHERE org_id = $2 AND id = $3""",
-            json.dumps(triage_state), org_id, entity_id,
-        )
-        return result.endswith("1")
-
-    async def get_active_scan_targets(
-        self,
-        org_id: str,
-        target_id: str,
-        entity_types: list[str] | None = None,
-    ) -> list[dict]:
-        type_filter = ""
-        if entity_types:
-            placeholders = ",".join(f"'{t}'" for t in entity_types)
-            type_filter = f"AND entity_type IN ({placeholders})"
-        rows = await self.pool.fetch(
-            f"""SELECT entity_type, entity_value, attributes
-                FROM entities
-                WHERE org_id = $1 AND target_id = $2
-                  AND attributes->>'triage_state' = 'active'
-                  {type_filter}
-                ORDER BY last_seen_at DESC""",
-            org_id, target_id,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_entity_lineage(
-        self,
-        entity_id: uuid.UUID,
-        org_id: str,
-    ) -> dict[str, Any] | None:
-        """Trace the discovery lineage of an entity via the parent_entity_id chain.
-
-        Each entity points to its immediate parent (the entity that led to its
-        discovery). Walking this chain produces an exact, non-heuristic lineage
-        from any asset back to its configured seed domain/ASN.
-
-        Returns ``None`` if the entity does not exist in the given org.
-        """
-        # Fetch the target entity
-        target = await self.pool.fetchrow(
-            """
-            SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
-                   e.parent_entity_id, e.discovery_run_id,
-                   r.source AS run_source
-            FROM entities e
-            LEFT JOIN runs r ON r.id = e.discovery_run_id
-            WHERE e.id = $1 AND e.org_id = $2
-            """,
-            entity_id, org_id,
-        )
-        if target is None:
-            return None
-
-        entity_info: dict[str, Any] = {
-            "id": str(target["id"]),
-            "entity_type": target["entity_type"],
-            "entity_value": target["entity_value"],
-            "discovered_by": target["run_source"],
-            "first_seen_at": (
-                target["first_seen_at"].isoformat()
-                if target["first_seen_at"] else None
-            ),
-        }
-
-        ancestors: list[dict[str, Any]] = []
-        child_id: uuid.UUID | None = target["id"]
-        current_parent_id = target["parent_entity_id"]
-        depth = 0
-        max_depth = 20
-
-        while current_parent_id is not None and depth < max_depth:
-            # Fetch parent entity + relationship type to child
-            parent = await self.pool.fetchrow(
-                """
-                SELECT e.id, e.entity_type, e.entity_value, e.first_seen_at,
-                       e.parent_entity_id, e.discovery_run_id,
-                       r.source AS run_source,
-                       rel.relationship_type,
-                       rel.runner AS relationship_runner
-                FROM entities e
-                LEFT JOIN runs r ON r.id = e.discovery_run_id
-                LEFT JOIN LATERAL (
-                    SELECT relationship_type, runner
-                    FROM entity_relationships
-                    WHERE (source_entity_id = e.id AND target_entity_id = $2)
-                       OR (target_entity_id = e.id AND source_entity_id = $2)
-                    LIMIT 1
-                ) rel ON TRUE
-                WHERE e.id = $1
-                """,
-                current_parent_id,
-                child_id,
-            )
-            if parent is None:
-                break
-
-            depth += 1
-            ancestors.append({
-                "entity": {
-                    "id": str(parent["id"]),
-                    "entity_type": parent["entity_type"],
-                    "entity_value": parent["entity_value"],
-                    "discovered_by": parent["run_source"],
-                    "first_seen_at": (
-                        parent["first_seen_at"].isoformat()
-                        if parent["first_seen_at"] else None
-                    ),
-                },
-                "connects_to_entity_id": str(child_id),
-                "relationship": {
-                    "type": (
-                        parent["relationship_type"]
-                        if parent["relationship_type"] else "discovered_by"
-                    ),
-                    "runner": parent["relationship_runner"],
-                },
-                "depth": depth,
-            })
-
-            child_id = parent["id"]
-            current_parent_id = parent["parent_entity_id"]
-
-        return {"entity": entity_info, "ancestors": ancestors}
-
-    # ── Pivot methods ─────────────────────────────────────────────────
-    # (removed — pivots now use Procrastinate tasks)
-
-    async def count_runs(
-        self,
-        target_id: str | None = None,
-        source: str | None = None,
-        status: str | None = None,
-        trigger_type: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-    ) -> int:
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if source:
-            idx += 1
-            conditions.append(f"source = ${idx}")
-            params.append(source)
-        if status:
-            idx += 1
-            conditions.append(f"status = ${idx}")
-            params.append(status)
-        if trigger_type:
-            idx += 1
-            conditions.append(f"trigger_type = ${idx}")
-            params.append(trigger_type)
-        if start:
-            idx += 1
-            conditions.append(f"started_at >= ${idx}")
-            params.append(start)
-        if end:
-            idx += 1
-            conditions.append(f"started_at <= ${idx}")
-            params.append(end)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        return await self.pool.fetchval(
-            f"SELECT COUNT(*) FROM runs {where}", *params,
-        ) or 0
-
-    async def list_finding_rules(self) -> list[str]:
-        rows = await self.pool.fetch(
-            "SELECT DISTINCT rule_id FROM findings ORDER BY rule_id"
-        )
-        return [r["rule_id"] for r in rows]
-
-    async def count_findings(
-        self,
-        target_id: str | None = None,
-        risk: str | None = None,
-        status: str | None = None,
-        rule_id: str | None = None,
-    ) -> int:
-        conditions: list[str] = []
-        params: list[Any] = []
-        idx = 0
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if risk:
-            idx += 1
-            conditions.append(f"risk = ${idx}")
-            params.append(risk)
-        if status:
-            idx += 1
-            conditions.append(f"status = ${idx}")
-            params.append(status)
-        if rule_id:
-            idx += 1
-            conditions.append(f"rule_id = ${idx}")
-            params.append(rule_id)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        return await self.pool.fetchval(
-            f"SELECT COUNT(*) FROM findings {where}", *params,
-        ) or 0
-
     async def count_events(
         self,
         target_id: str | None = None,
@@ -1080,653 +213,172 @@ class Store:
             f"SELECT COUNT(*) FROM raw_events {where}", *params,
         ) or 0
 
-    async def count_entities(
-        self,
-        target_id: str | None = None,
-        entity_type: str | None = None,
-    ) -> int:
-        conditions: list[str] = []
-        params: list[Any] = []
-        if target_id:
-            conditions.append("target_id = $1")
-            params.append(target_id)
-        if entity_type:
-            idx = len(params) + 1
-            conditions.append(f"entity_type = ${idx}")
-            params.append(entity_type)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        return await self.pool.fetchval(
-            f"SELECT COUNT(*) FROM entities {where}", *params,
-        ) or 0
+    # ── Run delegation ───────────────────────────────────────────────
 
-    # ── Finding methods ───────────────────────────────────────────────
+    async def create_run(self, *args: Any, **kwargs: Any) -> uuid.UUID:
+        return await self.runs.create_run(*args, **kwargs)
+
+    async def mark_run_started(self, *args: Any, **kwargs: Any) -> None:
+        await self.runs.mark_run_started(*args, **kwargs)
+
+    async def mark_run_finished(self, *args: Any, **kwargs: Any) -> None:
+        await self.runs.mark_run_finished(*args, **kwargs)
+
+    async def count_active_runs(self, *args: Any, **kwargs: Any) -> int:
+        return await self.runs.count_active_runs(*args, **kwargs)
+
+    async def list_runs(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.runs.list_runs(*args, **kwargs)
+
+    async def get_run(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.runs.get_run(*args, **kwargs)
+
+    async def count_runs(self, *args: Any, **kwargs: Any) -> int:
+        return await self.runs.count_runs(*args, **kwargs)
+
+    # ── Entity delegation ────────────────────────────────────────────
+
+    async def upsert_entity(self, *args: Any, **kwargs: Any) -> tuple[uuid.UUID, bool]:
+        return await self.entities.upsert_entity(*args, **kwargs)
+
+    async def update_entity_asset_profile(self, *args: Any, **kwargs: Any) -> None:
+        await self.entities.update_entity_asset_profile(*args, **kwargs)
+
+    async def apply_asset_profile_for_entity(self, *args: Any, **kwargs: Any) -> None:
+        # The legacy signature does not include the optional ``finding_lookup``
+        # parameter. Delegating positionally preserves backward compatibility.
+        await self.entities.apply_asset_profile_for_entity(*args, **kwargs)
+
+    async def _findings_for_entity(
+        self, target_id: str, entity_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        return await self.entities._findings_for_entity(target_id, entity_id)
+
+    async def upsert_relationship(self, *args: Any, **kwargs: Any) -> None:
+        await self.entities.upsert_relationship(*args, **kwargs)
+
+    async def upsert_relationship_by_value(self, *args: Any, **kwargs: Any) -> None:
+        await self.entities.upsert_relationship_by_value(*args, **kwargs)
+
+    async def record_asset_change_event(self, *args: Any, **kwargs: Any) -> uuid.UUID:
+        return await self.entities.record_asset_change_event(*args, **kwargs)
+
+    async def list_asset_change_events(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.entities.list_asset_change_events(*args, **kwargs)
+
+    async def get_active_scan_targets(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.entities.get_active_scan_targets(*args, **kwargs)
+
+    async def get_entity_lineage(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.entities.get_entity_lineage(*args, **kwargs)
+
+    async def count_entities(self, *args: Any, **kwargs: Any) -> int:
+        return await self.entities.count_entities(*args, **kwargs)
+
+    async def migrate_ip_associations(self, *args: Any, **kwargs: Any) -> dict[str, int]:
+        return await self.entities.migrate_ip_associations(*args, **kwargs)
+
+    # ── Finding delegation ───────────────────────────────────────────
+
+    async def list_finding_rules(self) -> list[str]:
+        return await self.findings.list_finding_rules()
+
+    async def count_findings(self, *args: Any, **kwargs: Any) -> int:
+        return await self.findings.count_findings(*args, **kwargs)
 
     async def create_finding(self, finding: Finding) -> uuid.UUID:
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO findings (org_id, target_id, rule_id, risk, headline, description,
-                                  entity_ids, evidence, status,
-                                  confidence_score, confidence_level)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9, $10, $11)
-            RETURNING id
-            """,
-            finding.org_id,
-            finding.target_id,
-            finding.rule_id,
-            finding.risk.value if hasattr(finding.risk, "value") else finding.risk,
-            finding.headline,
-            finding.description,
-            [uuid.UUID(eid) for eid in finding.entity_ids],
-            json.dumps(finding.evidence, default=str),
-            finding.status,
-            finding.confidence_score,
-            finding.confidence_level,
-        )
-        assert row is not None
-        return cast(uuid.UUID, row["id"])
+        return await self.findings.create_finding(finding)
 
-    async def list_findings(
-        self,
-        org_id: str = "default",
-        target_id: str | None = None,
-        risk: str | None = None,
-        status: str | None = None,
-        rule_id: str | None = None,
-        q: str | None = None,
-        confidence_min: float | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        conditions: list[str] = ["org_id = $1"]
-        params: list[Any] = [org_id]
-        idx = 1
+    async def list_findings(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.findings.list_findings(*args, **kwargs)
 
-        if target_id:
-            idx += 1
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-        if risk:
-            idx += 1
-            conditions.append(f"risk = ${idx}")
-            params.append(risk)
-        if status:
-            idx += 1
-            conditions.append(f"status = ${idx}")
-            params.append(status)
-        if rule_id:
-            idx += 1
-            conditions.append(f"rule_id = ${idx}")
-            params.append(rule_id)
-        if confidence_min is not None:
-            idx += 1
-            conditions.append(f"confidence_score >= ${idx}")
-            params.append(confidence_min)
-        if q:
-            idx += 1
-            conditions.append(f"(headline ILIKE ${idx} OR rule_id ILIKE ${idx})")
-            params.append(f"%{q}%")
+    async def get_finding(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.findings.get_finding(*args, **kwargs)
 
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        idx += 1
-        idx += 1
-        query = f"""
-            SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                   entity_ids, evidence, status,
-                   confidence_score, confidence_level,
-                   first_seen_at, last_seen_at, created_at
-            FROM findings
-            {where}
-            ORDER BY risk DESC, created_at DESC
-            LIMIT ${idx - 1} OFFSET ${idx}
-        """
-        params.extend([limit, offset])
-        rows = await self.pool.fetch(query, *params)
-        return [_row_to_finding_dict(r) for r in rows]
+    async def update_finding_status(self, *args: Any, **kwargs: Any) -> None:
+        await self.findings.update_finding_status(*args, **kwargs)
 
-    async def get_finding(self, finding_id: uuid.UUID) -> dict[str, Any] | None:
-        row = await self.pool.fetchrow(
-            """SELECT id, org_id, target_id, rule_id, risk, headline, description,
-                      entity_ids, evidence, status,
-                      confidence_score, confidence_level,
-                      first_seen_at, last_seen_at, created_at
-               FROM findings WHERE id = $1""",
-            finding_id,
-        )
-        if row is None:
-            return None
-        return _row_to_finding_dict(row)
+    async def acknowledge_finding(self, *args: Any, **kwargs: Any) -> None:
+        await self.findings.acknowledge_finding(*args, **kwargs)
 
-    async def update_finding_status(self, finding_id: uuid.UUID, status: str) -> None:
-        await self.pool.execute(
-            "UPDATE findings SET status = $1, last_seen_at = NOW() WHERE id = $2",
-            status,
-            finding_id,
-        )
+    # ── Asset delegation ─────────────────────────────────────────────
 
-    async def acknowledge_finding(self, finding_id: uuid.UUID) -> None:
-        await self.update_finding_status(finding_id, "acknowledged")
+    async def list_asset_inventory(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self.assets.list_asset_inventory(*args, **kwargs)
 
-    async def list_certificate_inventory(
-        self,
-        target_id: str | None = None,
-        org_id: str = "default",
-        deployment_state: str | None = None,
-        risk: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> dict[str, Any]:
-        conditions = ["org_id = $1", "entity_type = 'certificate'"]
-        params: list[Any] = [org_id]
-        idx = 2
+    async def export_assets_ndjson(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.assets.export_assets_ndjson(*args, **kwargs)
 
-        if target_id:
-            conditions.append(f"target_id = ${idx}")
-            params.append(target_id)
-            idx += 1
-        if deployment_state:
-            conditions.append(
-                "COALESCE("
-                "attributes #>> '{certificate_profile,analysis,deployment_state}', "
-                "attributes #>> '{certificate_profile,deployment,state}'"
-                f") = ${idx}"
-            )
-            params.append(deployment_state)
-            idx += 1
-        if risk:
-            conditions.append(f"attributes #>> '{{certificate_profile,analysis,risk}}' = ${idx}")
-            params.append(risk)
-            idx += 1
+    # ── Certificate delegation ───────────────────────────────────────
 
-        params.extend([limit, offset])
-        rows = await self.pool.fetch(
-            f"""
-            SELECT
-                COUNT(*) OVER() AS total_count,
-                id AS entity_id,
-                attributes #>> '{{certificate_profile,fingerprint_sha256}}' AS fingerprint_sha256,
-                COALESCE(
-                    attributes #>> '{{certificate_profile,subject,common_name}}',
-                    (attributes #> '{{certificate_profile,san_dns_names}}'->>0)
-                ) AS subject_cn,
-                attributes #> '{{certificate_profile,san_dns_names}}' AS san_dns_names,
-                CASE
-                    WHEN attributes #>> '{{certificate_profile,subject,common_name}}' IS NOT NULL THEN 'cn'
-                    ELSE 'san'
-                END AS subject_source,
-                attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization,
-                attributes #>> '{{certificate_profile,not_before}}' AS not_before,
-                attributes #>> '{{certificate_profile,not_after}}' AS not_after,
-                attributes #>> '{{certificate_profile,analysis,validity_state}}' AS validity_state,
-                COALESCE(
-                    attributes #>> '{{certificate_profile,analysis,deployment_state}}',
-                    attributes #>> '{{certificate_profile,deployment,state}}'
-                ) AS deployment_state,
-                attributes #> '{{certificate_profile,deployment,observed_endpoints}}' AS observed_endpoints,
-                attributes #>> '{{certificate_profile,analysis,risk}}' AS risk,
-                attributes #> '{{certificate_profile,analysis,reasons}}' AS reasons,
-                attributes #>> '{{certificate_profile,analysis,strength}}' AS strength
-            FROM entities
-            WHERE {' AND '.join(conditions)}
-            ORDER BY
-                CASE attributes #>> '{{certificate_profile,analysis,risk}}'
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2
-                    WHEN 'medium' THEN 3
-                    WHEN 'low' THEN 4
-                    WHEN 'info' THEN 5
-                    ELSE 6
-                END,
-                (attributes #>> '{{certificate_profile,not_after}}') ASC NULLS LAST
-            LIMIT ${idx} OFFSET ${idx + 1}
-            """,
-            *params,
-        )
-        total_count = rows[0]["total_count"] if rows else 0
-        return {
-            "certificates": [_row_to_certificate_inventory_dict(row) for row in rows],
-            "total_count": total_count,
-        }
+    async def list_certificate_inventory(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self.certificates.list_certificate_inventory(*args, **kwargs)
 
-    async def summarize_certificate_inventory(
-        self,
-        target_id: str | None = None,
-        org_id: str = "default",
-    ) -> dict[str, Any]:
-        conditions = ["org_id = $1", "entity_type = 'certificate'"]
-        params: list[Any] = [org_id]
-        if target_id:
-            conditions.append("target_id = $2")
-            params.append(target_id)
+    async def summarize_certificate_inventory(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self.certificates.summarize_certificate_inventory(*args, **kwargs)
 
-        rows = await self.pool.fetch(
-            f"""
-            SELECT
-                attributes #>> '{{certificate_profile,analysis,risk}}' AS risk,
-                COALESCE(
-                    attributes #>> '{{certificate_profile,analysis,deployment_state}}',
-                    attributes #>> '{{certificate_profile,deployment,state}}'
-                ) AS deployment_state,
-                attributes #>> '{{certificate_profile,issuer,organization}}' AS issuer_organization
-            FROM entities
-            WHERE {' AND '.join(conditions)}
-            """,
-            *params,
-        )
+    # ── Config delegation ────────────────────────────────────────────
 
-        summary: dict[str, Any] = {
-            "total": len(rows),
-            "by_risk": {},
-            "by_deployment_state": {},
-            "by_issuer_organization": {},
-        }
-        for row in rows:
-            for source_key, summary_key in (
-                ("risk", "by_risk"),
-                ("deployment_state", "by_deployment_state"),
-                ("issuer_organization", "by_issuer_organization"),
-            ):
-                value = row[source_key] or "unknown"
-                summary[summary_key][value] = summary[summary_key].get(value, 0) + 1
-        return summary
+    async def save_config_snapshot(self, *args: Any, **kwargs: Any) -> None:
+        await self.config.save_config_snapshot(*args, **kwargs)
 
-    async def migrate_ip_associations(self) -> dict[str, int]:
-        """One-time migration: associate existing IPs with known IP ranges and geo data."""
-        import ipaddress
-        from easm.pivot.handlers import GeoIpLookup
+    async def list_config_history(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.config.list_config_history(*args, **kwargs)
 
-        results = {"ip_range_associations": 0, "geo_enrichments": 0}
+    async def get_config_snapshot(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.config.get_config_snapshot(*args, **kwargs)
 
-        ip_ranges = await self.pool.fetch(
-            "SELECT id, entity_value FROM entities WHERE entity_type = 'ip_range'"
-        )
-        range_map = {row["id"]: row["entity_value"] for row in ip_ranges}
+    # ── Triage delegation ────────────────────────────────────────────
 
-        ips = await self.pool.fetch("SELECT id, entity_value, attributes, org_id FROM entities WHERE entity_type = 'ip'")
+    async def get_triage_inbox(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.triage.get_triage_inbox(*args, **kwargs)
 
-        for ip_row in ips:
-            ip_value = ip_row["entity_value"]
-            ip_id = ip_row["id"]
-            attrs = ip_row["attributes"]
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs) if attrs else {}
-            elif attrs is None:
-                attrs = {}
+    async def set_entity_triage_state(self, *args: Any, **kwargs: Any) -> bool:
+        return await self.triage.set_entity_triage_state(*args, **kwargs)
 
-            for range_id, range_value in range_map.items():
-                try:
-                    network = ipaddress.ip_network(range_value, strict=False)
-                    if ipaddress.ip_address(ip_value) in network:
-                        await self.upsert_relationship(
-                            ip_row["org_id"],
-                            ip_id,
-                            range_id,
-                            "ip_in_range",
-                            "retroactive_migration",
-                        )
-                        results["ip_range_associations"] += 1
-                        break
-                except ValueError:
-                    continue
-
-            if "geo" not in attrs:
-                try:
-                    lookup = GeoIpLookup()
-                    result = lookup.lookup(ip_value)
-                    if result:
-                        attrs["geo"] = result.to_dict()
-                        await self.pool.execute(
-                            "UPDATE entities SET attributes = $1::jsonb WHERE id = $2",
-                            json.dumps(attrs), ip_id,
-                        )
-                        results["geo_enrichments"] += 1
-                except Exception:
-                    pass
-
-        logger.info("migration complete", extra=results)
-        return results
-
-    # ── User methods ──────────────────────────────────────────────
+    # ── Auth delegation ──────────────────────────────────────────────
 
     async def user_count(self) -> int:
-        return await self.pool.fetchval("SELECT COUNT(*) FROM users")
+        return await self.auth.user_count()
 
     async def is_first_user(self) -> bool:
-        """Atomically check if no users exist. Use inside a transaction for bootstrap."""
-        return await self.pool.fetchval("SELECT COUNT(*) = 0 FROM users")
+        return await self.auth.is_first_user()
 
-    async def create_user(
-        self,
-        *,
-        org_id: str = "default",
-        username: str,
-        email: str | None = None,
-        display_name: str | None = None,
-        password_hash: str | None = None,
-        role: str = "admin",
-        sso_provider: str | None = None,
-        sso_provider_id: str | None = None,
-    ) -> dict:
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO users (org_id, username, email, display_name, password_hash, role, sso_provider, sso_provider_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
-            """,
-            org_id,
-            username,
-            email,
-            display_name,
-            password_hash,
-            role,
-            sso_provider,
-            sso_provider_id,
-        )
-        return dict(row)
+    async def create_user(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self.auth.create_user(*args, **kwargs)
 
-    async def get_user_by_username(self, org_id: str, username: str) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE org_id = $1 AND username = $2 AND is_active = true",
-            org_id,
-            username,
-        )
-        return dict(row) if row else None
+    async def get_user_by_username(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.auth.get_user_by_username(*args, **kwargs)
 
-    async def get_user_by_id(self, user_id) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE id = $1 AND is_active = true",
-            user_id,
-        )
-        return dict(row) if row else None
+    async def get_user_by_id(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.auth.get_user_by_id(*args, **kwargs)
 
-    async def get_user_by_sso(self, provider: str, provider_id: str) -> dict | None:
-        row = await self.pool.fetchrow(
-            "SELECT * FROM users WHERE sso_provider = $1 AND sso_provider_id = $2 AND is_active = true",
-            provider,
-            provider_id,
-        )
-        return dict(row) if row else None
+    async def get_user_by_sso(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.auth.get_user_by_sso(*args, **kwargs)
 
-    async def update_user_last_seen(self, user_id) -> None:
-        await self.pool.execute(
-            "UPDATE users SET updated_at = NOW() WHERE id = $1",
-            user_id,
-        )
+    async def update_user_last_seen(self, *args: Any, **kwargs: Any) -> None:
+        await self.auth.update_user_last_seen(*args, **kwargs)
 
-    async def list_users(self, org_id: str = "default") -> list[dict]:
-        rows = await self.pool.fetch(
-            "SELECT id, org_id, username, email, display_name, role, created_at, updated_at FROM users WHERE org_id = $1 ORDER BY created_at",
-            org_id,
-        )
-        return [dict(r) for r in rows]
+    async def list_users(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.auth.list_users(*args, **kwargs)
 
-    async def delete_user(self, user_id) -> bool:
-        result = await self.pool.execute(
-            "DELETE FROM users WHERE id = $1",
-            user_id,
-        )
-        return result != "DELETE 0"
+    async def delete_user(self, *args: Any, **kwargs: Any) -> bool:
+        return await self.auth.delete_user(*args, **kwargs)
 
-    async def update_user(
-        self,
-        user_id: str,
-        *,
-        email: str | None = None,
-        display_name: str | None = None,
-        password_hash: str | None = None,
-    ) -> bool:
-        sets = []
-        args = []
-        idx = 1
-        if email is not None:
-            sets.append(f"email = ${idx}")
-            args.append(email)
-            idx += 1
-        if display_name is not None:
-            sets.append(f"display_name = ${idx}")
-            args.append(display_name)
-            idx += 1
-        if password_hash is not None:
-            sets.append(f"password_hash = ${idx}")
-            args.append(password_hash)
-            idx += 1
-        if not sets:
-            return False
-        args.append(user_id)
-        result = await self.pool.execute(
-            f"UPDATE users SET {', '.join(sets)} WHERE id = ${idx}",
-            *args,
-        )
-        return result != "UPDATE 0"
+    async def update_user(self, *args: Any, **kwargs: Any) -> bool:
+        return await self.auth.update_user(*args, **kwargs)
 
-    # ── API key methods ───────────────────────────────────────────
+    async def create_api_key(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self.auth.create_api_key(*args, **kwargs)
 
-    async def create_api_key(
-        self,
-        *,
-        user_id,
-        org_id: str = "default",
-        name: str,
-        key_prefix: str,
-        key_hash: str,
-        expires_at=None,
-    ) -> dict:
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO api_keys (user_id, org_id, name, key_prefix, key_hash, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
-            """,
-            user_id,
-            org_id,
-            name,
-            key_prefix,
-            key_hash,
-            expires_at,
-        )
-        return dict(row)
+    async def validate_api_key(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        return await self.auth.validate_api_key(*args, **kwargs)
 
-    async def validate_api_key(self, key_hash: str) -> dict | None:
-        row = await self.pool.fetchrow(
-            """
-            SELECT ak.id AS api_key_id, ak.name AS api_key_name, ak.expires_at,
-                   u.id AS user_id, u.username, u.org_id, u.role, u.is_active
-            FROM api_keys ak
-            JOIN users u ON u.id = ak.user_id
-            WHERE ak.key_hash = $1
-              AND u.is_active = true
-              AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
-            """,
-            key_hash,
-        )
-        if row is None:
-            return None
-        result = dict(row)
-        # Fire-and-forget last_used_at update
-        import asyncio
+    async def list_api_keys(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return await self.auth.list_api_keys(*args, **kwargs)
 
-        async def _touch() -> None:
-            try:
-                await self.pool.execute(
-                    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
-                    result["api_key_id"],
-                )
-            except Exception:
-                pass
-
-        asyncio.create_task(_touch())
-        return result
-
-    async def list_api_keys(self, user_id) -> list[dict]:
-        rows = await self.pool.fetch(
-            """
-            SELECT id, name, key_prefix, expires_at, last_used_at, created_at
-            FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC
-            """,
-            user_id,
-        )
-        return [dict(r) for r in rows]
-
-    async def delete_api_key(self, api_key_id, user_id) -> bool:
-        result = await self.pool.execute(
-            "DELETE FROM api_keys WHERE id = $1 AND user_id = $2",
-            api_key_id,
-            user_id,
-        )
-        return result == "DELETE 1"
+    async def delete_api_key(self, *args: Any, **kwargs: Any) -> bool:
+        return await self.auth.delete_api_key(*args, **kwargs)
 
 
-def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
-    def _fmt(dt: datetime | None) -> str | None:
-        return dt.isoformat() if dt else None
-
-    def _parse(val):
-        if isinstance(val, dict):
-            return val
-        if isinstance(val, str):
-            try:
-                return json.loads(val)
-            except (json.JSONDecodeError, TypeError):
-                return {}
-        return {}
-
-    return {
-        "id": str(row["id"]),
-        "org_id": row["org_id"],
-        "target_id": row["target_id"],
-        "rule_id": row["rule_id"],
-        "risk": row["risk"],
-        "headline": row["headline"],
-        "description": row["description"],
-        "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
-        "evidence": _parse(row["evidence"]),
-        "status": row["status"],
-        "confidence_score": row.get("confidence_score"),
-        "confidence_level": row.get("confidence_level"),
-        "first_seen_at": _fmt(row["first_seen_at"]),
-        "last_seen_at": _fmt(row["last_seen_at"]),
-        "created_at": _fmt(row["created_at"]),
-    }
-
-
-def _row_to_asset_change_event_dict(row: asyncpg.Record) -> dict[str, Any]:
-    def _fmt(dt: datetime | None) -> str | None:
-        return dt.isoformat() if dt else None
-
-    return {
-        "id": str(row["id"]),
-        "org_id": row["org_id"],
-        "target_id": row["target_id"],
-        "entity_id": str(row["entity_id"]),
-        "change_type": row["change_type"],
-        "summary": row["summary"],
-        "before_state": _json_field(row["before_state"], {}),
-        "after_state": _json_field(row["after_state"], {}),
-        "evidence": _json_field(row["evidence"], []),
-        "source": row["source"],
-        "observed_at": _fmt(row["observed_at"]),
-        "created_at": _fmt(row["created_at"]),
-    }
-
-
-def _row_to_asset_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
-    def _fmt(dt: datetime | None) -> str | None:
-        return dt.isoformat() if dt else None
-
-    confidence_score = row["confidence_score"]
-    risk_score = row["risk_score"]
-    return {
-        "entity_id": str(row["entity_id"]),
-        "org_id": row["org_id"],
-        "target_id": row["target_id"],
-        "entity_type": row["entity_type"],
-        "entity_value": row["entity_value"],
-        "first_seen_at": _fmt(row["first_seen_at"]),
-        "last_seen_at": _fmt(row["last_seen_at"]),
-        "confidence_score": float(confidence_score) if confidence_score is not None else None,
-        "confidence_level": row["confidence_level"],
-        "risk_score": float(risk_score) if risk_score is not None else None,
-        "risk_level": row["risk_level"],
-        "feed_eligible": row["feed_eligible"],
-        "sources": _json_field(row["sources"], []),
-        "evidence_count": row["evidence_count"],
-    }
-
-
-
-
-def _json_field(value: Any, default: Any) -> Any:
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return json.loads(value)
-    return value
-
-
-def _row_to_certificate_inventory_dict(row: asyncpg.Record) -> dict[str, Any]:
-    return {
-        "entity_id": str(row["entity_id"]),
-        "fingerprint_sha256": row["fingerprint_sha256"],
-        "subject_cn": row["subject_cn"],
-        "issuer_organization": row["issuer_organization"],
-        "not_before": row["not_before"],
-        "not_after": row["not_after"],
-        "validity_state": row["validity_state"],
-        "deployment_state": row["deployment_state"],
-        "observed_endpoints": _json_field(row["observed_endpoints"], []),
-        "risk": row["risk"],
-        "reasons": _json_field(row["reasons"], []),
-        "strength": row["strength"],
-        "san_dns_names": _json_field(row["san_dns_names"], []),
-        "subject_source": row["subject_source"],
-    }
-
-
-def _row_to_run_dict(row: asyncpg.Record) -> dict[str, Any]:
-    def _fmt(dt: datetime | None) -> str | None:
-        return dt.isoformat() if dt else None
-
-    return {
-        "id": str(row["id"]),
-        "target_id": row["target_id"],
-        "source": row["source"],
-        "trigger_type": row["trigger_type"],
-        "status": row["status"],
-        "scheduled_for": _fmt(row["scheduled_for"]),
-        "started_at": _fmt(row["started_at"]),
-        "finished_at": _fmt(row["finished_at"]),
-        "duration_ms": row["duration_ms"],
-        "inserted_count": row["inserted_count"],
-        "deduped_count": row["deduped_count"],
-        "error_count": row["error_count"],
-        "error_message": row["error_message"],
-        "discovery_session_id": str(row["discovery_session_id"]) if row["discovery_session_id"] else None,
-        "new_entity_count": row["new_entity_count"],
-        "total_entity_count": row["total_entity_count"],
-        "metadata": (
-            json.loads(row["metadata"])
-            if isinstance(row["metadata"], str)
-            else row["metadata"]
-        ),
-        "logs": row["logs"],
-    }
-
-
-def _findings_row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
-    def _fmt(dt: datetime | None) -> str | None:
-        return dt.isoformat() if dt else None
-
-    return {
-        "id": str(row["id"]),
-        "org_id": row["org_id"],
-        "target_id": row["target_id"],
-        "rule_id": row["rule_id"],
-        "risk": row["risk"],
-        "headline": row["headline"],
-        "description": row["description"],
-        "entity_ids": [str(eid) for eid in row["entity_ids"]] if row["entity_ids"] else [],
-        "evidence": row["evidence"] if isinstance(row["evidence"], dict) else {},
-        "status": row["status"],
-        "first_seen_at": _fmt(row["first_seen_at"]),
-        "last_seen_at": _fmt(row["last_seen_at"]),
-        "created_at": _fmt(row["created_at"]),
-    }
+__all__ = ["Store", "_canonical_json", "_compute_event_hash"]

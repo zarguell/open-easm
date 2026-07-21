@@ -1,3 +1,11 @@
+"""Legacy pivot worker.
+
+This module is the original pivot worker implementation that processes jobs
+directly from the pivot_queue table. It is retained for backward compatibility
+with existing tests; new code should use :mod:`easm.tasks.pivot` instead, which
+runs pivot jobs through the procrastinate task queue.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +16,7 @@ from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any
 
+import asyncpg
 import httpx
 
 from easm.certificates import certificate_inventory_to_findings
@@ -66,10 +75,16 @@ def _dispatch_finding_notification(f: Any, finding_id: Any) -> None:
                     "evidence": f.evidence,
                     "status": "open",
                 })
-        except Exception:
-            pass  # non-critical
-    except Exception:
-        logger.debug("notification dispatch error (non-fatal)", exc_info=True)
+        except (AttributeError, RuntimeError, ImportError, ValueError, KeyError) as e:
+            logger.debug(
+                "SSE finding stream publish skipped",
+                extra={"error": str(e)},
+            )
+    except (AttributeError, RuntimeError, ValueError, KeyError) as e:
+        logger.debug(
+            "notification dispatch error (non-fatal)",
+            exc_info=True, extra={"error": str(e)},
+        )
 
 
 async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
@@ -87,10 +102,15 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
             try:
                 finding_id = await store.create_finding(f)
                 _dispatch_finding_notification(f, finding_id)
-            except Exception:
-                logger.exception("failed to save finding", extra={"rule_id": f.rule_id})
-    except Exception:
-        logger.exception("correlation engine failed")
+            except (asyncpg.PostgresError, ValueError) as e:
+                logger.exception(
+                    "failed to save finding",
+                    extra={"rule_id": f.rule_id, "error": str(e)},
+                )
+    except (asyncpg.PostgresError, ValueError, OSError) as e:
+        logger.exception(
+            "correlation engine failed", extra={"error": str(e)},
+        )
 
     try:
         cert_result = await store.list_certificate_inventory(
@@ -105,18 +125,20 @@ async def _run_correlation(store: Store, org_id: str, target_id: str) -> None:
                 try:
                     finding_id = await store.create_finding(f)
                     _dispatch_finding_notification(f, finding_id)
-                except Exception:
+                except (asyncpg.PostgresError, ValueError) as e:
                     logger.exception(
                         "failed to save certificate finding",
-                        extra={"rule_id": f.rule_id},
+                        extra={"rule_id": f.rule_id, "error": str(e)},
                     )
             logger.info(
                 "Certificate analysis produced %d findings for target %s",
                 len(cert_findings),
                 target_id,
             )
-    except Exception:
-        logger.exception("certificate findings generation failed")
+    except (asyncpg.PostgresError, ValueError, TypeError, KeyError) as e:
+        logger.exception(
+            "certificate findings generation failed", extra={"error": str(e)},
+        )
 
 
 def _resolve_target_config(config: Any | None, target_id: str) -> Any | None:
@@ -252,8 +274,11 @@ async def _process_one_pivot_job(
                                                 break
                                         except ValueError:
                                             continue
-                                except Exception:
-                                    logger.debug("ip range association failed", exc_info=True)
+                                except (asyncpg.PostgresError, ValueError, KeyError) as e:
+                                    logger.debug(
+                                        "ip range association failed",
+                                        exc_info=True, extra={"error": str(e)},
+                                    )
 
                             if ec.entity_type == "ip":
                                 try:
@@ -276,8 +301,11 @@ async def _process_one_pivot_job(
                                             json.dumps(attrs), entity_id,
                                         )
                                         logger.debug("enriched IP %s with geo data", ec.value)
-                                except Exception:
-                                    logger.debug("geo enrichment failed", exc_info=True)
+                                except (asyncpg.PostgresError, ValueError, KeyError, TypeError) as e:
+                                    logger.debug(
+                                        "geo enrichment failed",
+                                        exc_info=True, extra={"error": str(e)},
+                                    )
 
                             try:
                                 source = source_name or job["pivot_type"] or "unknown"
@@ -308,10 +336,10 @@ async def _process_one_pivot_job(
                                         f"{ec.entity_type} {ec.value}"
                                     ),
                                 )
-                            except Exception:
+                            except (asyncpg.PostgresError, ValueError, KeyError) as e:
                                 logger.debug(
                                     "asset profile update from pivot failed",
-                                    exc_info=True,
+                                    exc_info=True, extra={"error": str(e)},
                                 )
                             if is_new and target_config:
                                 try:
@@ -325,17 +353,17 @@ async def _process_one_pivot_job(
                                             job.get("discovery_session_id")
                                         ),
                                     )
-                                except Exception:
+                                except (asyncpg.PostgresError, ValueError) as e:
                                     errors += 1
                                     logger.debug(
                                         "recursive pivot failed",
-                                        exc_info=True,
+                                        exc_info=True, extra={"error": str(e)},
                                     )
-                        except Exception:
+                        except (asyncpg.PostgresError, ValueError, KeyError) as e:
                             errors += 1
                             logger.debug(
                                 "entity upsert from pivot failed",
-                                exc_info=True,
+                                exc_info=True, extra={"error": str(e)},
                             )
                     for rc in rels:
                         try:
@@ -346,17 +374,17 @@ async def _process_one_pivot_job(
                                 rc.relationship_type, rc.relationship_source,
                                 evidence_raw_event_id=re_id,
                             )
-                        except Exception:
+                        except (asyncpg.PostgresError, ValueError) as e:
                             errors += 1
                             logger.debug(
                                 "relationship upsert from pivot failed",
-                                exc_info=True,
+                                exc_info=True, extra={"error": str(e)},
                             )
-                except Exception:
+                except (ValueError, KeyError, TypeError) as e:
                     errors += 1
                     logger.debug(
                         "output schema failed for pivot result",
-                        exc_info=True,
+                        exc_info=True, extra={"error": str(e)},
                     )
         materialization_error = None
         if errors:
@@ -429,10 +457,10 @@ async def _process_one_pivot_job(
                         "entity_value": job["entity_value"],
                     },
                 )
-    except Exception:
+    except (asyncpg.PostgresError, ValueError, KeyError, RuntimeError) as e:
         logger.exception(
-            "pivot job failed: job_id=%s pivot_type=%s entity_value=%s",
-            str(job["id"]), job["pivot_type"], job["entity_value"],
+            "pivot job failed: job_id=%s pivot_type=%s entity_value=%s error=%s",
+            str(job["id"]), job["pivot_type"], job["entity_value"], str(e),
         )
         await store.mark_pivot_failed(job["id"], "see logs")
         if created_pivot_run and run_id:

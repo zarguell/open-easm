@@ -34,8 +34,11 @@ class NotificationDispatcher:
                 if handler:
                     await handler(channel, payload)
                     self._rate_counts[channel.name] = self._rate_counts.get(channel.name, 0) + 1
-            except Exception:
-                logger.exception("notification dispatch failed", extra={"channel": channel.name})
+            except (ValueError, KeyError, TypeError, OSError) as e:
+                logger.exception(
+                    "notification dispatch failed",
+                    extra={"channel": channel.name, "error": str(e)},
+                )
 
     def _is_rate_limited(self, channel_name: str) -> bool:
         return self._rate_counts.get(channel_name, 0) >= self._config.rate_limit_per_hour

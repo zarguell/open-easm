@@ -1,0 +1,9 @@
+# Schema: subfinder → hostname entities
+source: subfinder
+entities:
+  - type: hostname
+    value_from: host
+    normalize: true
+    attributes:
+      source: subfinder
+relations: []

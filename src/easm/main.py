@@ -53,7 +53,7 @@ async def main() -> None:
     logger.info("loading config", path=config_path)
     try:
         config = load_config(config_path)
-    except Exception as e:
+    except (FileNotFoundError, OSError, ValueError) as e:
         logger.error("failed to load config", path=config_path, error=str(e))
         sys.exit(1)
 
@@ -147,8 +147,11 @@ async def main() -> None:
         try:
             kev_count = await asyncio.wait_for(refresh_kev_cache(pool), timeout=30)
             logger.info("initial kev cache populated", count=kev_count)
-        except Exception:
-            logger.exception("initial kev cache population failed (non-fatal)")
+        except (asyncio.TimeoutError, OSError, ValueError) as e:
+            logger.exception(
+                "initial kev cache population failed (non-fatal)",
+                extra={"error": str(e)},
+            )
 
         scheduler.setup_kev_refresh(pool)
 
@@ -157,8 +160,11 @@ async def main() -> None:
             from easm.epss import refresh_epss_cache
             epss_count = await asyncio.wait_for(refresh_epss_cache(pool), timeout=120)
             logger.info("initial epss cache populated", count=epss_count)
-        except Exception:
-            logger.exception("initial epss cache population failed (non-fatal)")
+        except (asyncio.TimeoutError, OSError, ValueError) as e:
+            logger.exception(
+                "initial epss cache population failed (non-fatal)",
+                extra={"error": str(e)},
+            )
 
         scheduler.setup_epss_refresh(pool)
 
@@ -223,7 +229,7 @@ async def main() -> None:
             except httpx.ConnectError:
                 logger.warning("health check connection failed - server down, will restart")
                 os._exit(1)
-            except Exception as e:
+            except (httpx.RequestError, OSError, ValueError) as e:
                 logger.warning("health check error", error=str(e))
 
     monitor_task = asyncio.create_task(monitor_background_tasks())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,6 +15,8 @@ from easm.api.sse import get_finding_stream
 from easm.correlation.rule import VALID_FINDING_STATUSES
 from easm.sla.models import compute_sla_status, compute_sla_summary
 from easm.store import Store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["findings"])
 
@@ -53,7 +56,7 @@ async def stream_findings(
                     # Send keepalive
                     yield ": keepalive\n\n"
         except asyncio.CancelledError:
-            pass
+            logger.debug("SSE findings stream cancelled by client")
         finally:
             stream.unsubscribe(queue)
 

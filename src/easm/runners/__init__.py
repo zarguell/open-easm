@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import asyncpg
+
 from easm.runners.registry import RunnerDef, get_runner_registry
 from easm.runners.schemas import OUTPUT_SCHEMAS
 
@@ -11,7 +13,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "RunnerDef", "get_all_runners", "get_runner_registry",
-    "RUNNER_REGISTRY",  # kept for backward compat during migration
 ]
 
 _legacy_logger = logging.getLogger(__name__)
@@ -71,10 +72,10 @@ class _EntityIngestStoreProxy:
                     pool=getattr(self._inner, "pool", None),
                     raw_event_id=raw_event_id,
                 )
-            except Exception:
+            except (ValueError, KeyError, TypeError, asyncpg.PostgresError) as e:
                 _legacy_logger.debug(
                     "inline entity ingestion failed for %s event",
-                    source, exc_info=True,
+                    source, exc_info=True, extra={"error": str(e)},
                 )
         return raw_event_id
 
@@ -158,11 +159,6 @@ def _register_legacy():
     })
 
 
-# Build legacy RUNNER_REGISTRY for backward compat (scheduler uses it for naming)
-# This maps name → class for the OLD runners.
-# Standard runners that moved to the declarative registry are NOT here.
-RUNNER_REGISTRY: dict[str, type] = {}  # populated on first get_all_runners() call
-
 _combined_cache: dict[str, RunnerDef] | None = None
 
 
@@ -185,8 +181,6 @@ def get_all_runners() -> dict[str, RunnerDef]:
         _register_legacy()
 
     for name, runner_cls in _LEGACY_CLASSES.items():
-        # Populate backward compat registry
-        RUNNER_REGISTRY[name] = runner_cls
         # Add adapted entry
         registry[name] = RunnerDef(
             source_name=name,

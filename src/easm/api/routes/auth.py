@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
@@ -110,7 +111,11 @@ async def register(req: RegisterRequest, request: Request) -> Any:
                 if row is None:
                     return Response(status_code=409, content='{"error": "username_taken"}')
                 user = dict(row)
-    except Exception:
+    except (asyncpg.PostgresError, ValueError) as e:
+        logger.warning(
+            "user registration failed",
+            exc_info=True, extra={"username": req.username, "error": str(e)},
+        )
         return Response(status_code=409, content='{"error": "username_taken"}')
     return _user_response(user)
 

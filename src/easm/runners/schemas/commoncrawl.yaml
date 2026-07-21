@@ -1,0 +1,11 @@
+# Schema: commoncrawl → domain entities
+source: commoncrawl
+entities:
+  - type: domain
+    value_from: domain
+    normalize: true
+    attributes:
+      source: commoncrawl
+      url: "$raw.url"
+      discovered_from: "$raw.domain"
+relations: []

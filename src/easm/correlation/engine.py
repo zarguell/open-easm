@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import asyncpg
@@ -13,6 +14,8 @@ from easm.correlation.rule import (
     CorrelationRule,
     Finding,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_finding_confidence(matched_entities: list[dict]) -> tuple[float, str]:
@@ -94,7 +97,11 @@ class CorrelationEngine:
             try:
                 rule_findings = await self.evaluate(rule, org_id, target_id)
                 all_findings.extend(rule_findings)
-            except Exception:
+            except (asyncpg.PostgresError, ValueError, KeyError) as e:
+                logger.warning(
+                    "correlation rule evaluation failed",
+                    extra={"rule_id": rule.id, "error": str(e)},
+                )
                 continue
         return all_findings
 

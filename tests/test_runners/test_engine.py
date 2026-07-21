@@ -233,7 +233,7 @@ async def test_sequential_and_concurrent_produce_same_results():
 
 @pytest.mark.asyncio
 async def test_max_concurrent_1_does_not_use_gather():
-    with patch("easm.runners.engine.asyncio.gather") as mock_gather:
+    with patch("easm.runners.http_runner.asyncio.gather") as mock_gather:
         mock_gather.side_effect = AssertionError("gather should not be called")
         await standard_http_run(
             _make_target(["a.com"]),
@@ -274,7 +274,7 @@ async def test_subprocess_ingest_enqueues_pivots_with_store_pool():
 
     with (
         patch(
-            "easm.runners.engine.exec_subprocess",
+            "easm.runners.subprocess_runner.exec_subprocess",
             AsyncMock(return_value=(True, '{"host":"app.example.com"}\n', "")),
         ),
         patch(
