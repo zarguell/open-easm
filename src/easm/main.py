@@ -115,9 +115,6 @@ async def main() -> None:
         raise
     finally:
         _executor.shutdown(wait=False)
-        logger.exception("migration failed", error=str(e))
-        raise
-
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
 
