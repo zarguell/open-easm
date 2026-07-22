@@ -1,0 +1,19 @@
+name: Subdomain Takeover Suspicion
+collect:
+  - field: entity_type
+    method: exact
+    value: hostname
+  - field: attributes.takeover_suspicion
+    method: regex
+    patterns:
+      - "[Tt]rue"
+aggregation:
+  field: entity_value
+analysis:
+  - method: threshold
+    minimum: 1
+meta:
+  risk: low
+  remediation: "Investigate CNAME target for potential takeover"
+  hunt: true
+headline: "{entity_value} has suspicious CNAME"

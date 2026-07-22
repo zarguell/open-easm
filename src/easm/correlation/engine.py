@@ -189,8 +189,11 @@ class CorrelationEngine:
         if field == "entity_value":
             return "entity_value"
         if field.startswith("attributes."):
-            attr_key = field[len("attributes."):]
-            return f"attributes->>'{attr_key}'"
+            attr_path = field[len("attributes."):]
+            parts = attr_path.split(".", 1)
+            if len(parts) == 1:
+                return f"attributes->>'{parts[0]}'"
+            return f"attributes->'{parts[0]}'->>'{parts[1]}'"
         return field
 
     def _resolve_field(self, entity: dict[str, Any], field: str) -> str:
@@ -199,8 +202,13 @@ class CorrelationEngine:
         if field == "entity_type":
             return entity.get("entity_type", "")
         if field.startswith("attributes."):
-            attr_key = field[len("attributes."):]
+            attr_path = field[len("attributes."):]
+            parts = attr_path.split(".", 1)
             attrs = entity.get("attributes", {})
-            val = attrs.get(attr_key)
+            if len(parts) == 1:
+                val = attrs.get(parts[0])
+            else:
+                inner = attrs.get(parts[0], {})
+                val = inner.get(parts[1]) if isinstance(inner, dict) else None
             return str(val) if val is not None else ""
         return str(entity.get(field, ""))

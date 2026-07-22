@@ -169,10 +169,13 @@ def portscan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
     entities: list[EntityCandidate] = []
     nh = normalize_entity_value("hostname", hostname)
     entities.append(EntityCandidate("hostname", nh, {"source": "portscan", "open_ports": ports}))
+    rels: list[RelationshipCandidate] = []
     if ip:
-        entities.append(EntityCandidate("ip", normalize_entity_value("ip", ip),
+        ni = normalize_entity_value("ip", ip)
+        entities.append(EntityCandidate("ip", ni,
                                         {"source": "portscan", "open_ports": ports}))
-    return entities, []
+        rels.append(RelationshipCandidate("hostname", nh, "ip", ni, "resolves_to", "pivot"))
+    return entities, rels
 
 
 def screenshot(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -182,6 +185,21 @@ def screenshot(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
         return [], []
     return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname),
                             {"source": "screenshot", "screenshot_path": sp})], []
+
+
+def _extract_san_name(name: str) -> str | None:
+    """Extract a DNS name from a cert SAN entry. Returns None for non-DNS entries."""
+    clean = name.strip()
+    # Filter out IP Address entries
+    if clean.lower().startswith("ip address:"):
+        return None
+    # Strip DNS: prefix
+    if clean.startswith("DNS:"):
+        clean = clean[4:]
+    # Expand wildcards
+    if clean.startswith("*."):
+        clean = clean[2:]
+    return clean if clean else None
 
 
 def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -195,16 +213,19 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
     if isinstance(san_ext, dict):
         for names in san_ext.values():
             if isinstance(names, list):
-                all_names.update(names)
+                for name in names:
+                    extracted = _extract_san_name(name)
+                    if extracted:
+                        all_names.add(extracted)
             elif isinstance(names, str):
-                all_names.add(names)
+                extracted = _extract_san_name(names)
+                if extracted:
+                    all_names.add(extracted)
     elif isinstance(san_ext, str):
         for name in san_ext.split(","):
-            clean_name = name.strip()
-            if clean_name.startswith("DNS:"):
-                clean_name = clean_name[4:]
-            if clean_name:
-                all_names.add(clean_name)
+            extracted = _extract_san_name(name)
+            if extracted:
+                all_names.add(extracted)
     if not all_names:
         return [], []
     entities: list[EntityCandidate] = []
@@ -523,7 +544,17 @@ def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[Relations
     if te:
         attrs["takeover_evidence"] = te
         signals = te.get("signals", [])
-        attrs["takeover_risk"] = len(signals) > 0
+        signal_set = set(signals)
+        has_http_confirmation = (
+            "http_unclaimed" in signal_set
+            or any(s.startswith("http_fingerprint:") for s in signal_set)
+        )
+        has_dns_signal = not has_http_confirmation and any(
+            s.startswith(("provider:", "external_domain_"))
+            for s in signal_set
+        )
+        attrs["takeover_risk"] = has_http_confirmation
+        attrs["takeover_suspicion"] = has_dns_signal and not has_http_confirmation
         attrs["signal_count"] = te.get("signal_count", 0)
         provider = te.get("provider")
         if provider:

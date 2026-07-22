@@ -198,7 +198,7 @@ async def _dns_chain(hostname: str) -> dict[str, Any]:
     return chain
 
 
-async def _classify_provider(terminal: str, hostname: str) -> dict[str, Any] | None:
+async def _classify_provider(terminal: str) -> dict[str, Any] | None:
     """Classify the terminal target against fingerprint database."""
     terminal_lower = terminal.lower()
 
@@ -209,16 +209,6 @@ async def _classify_provider(terminal: str, hostname: str) -> dict[str, Any] | N
                 "provider": provider,
                 "claimability": claimability,
                 "matched_on": "cname_pattern",
-                "pattern": pattern,
-            }
-
-    # Check hostname itself against fingerprints
-    for pattern, (provider, claimability) in _TAKEOVER_FINGERPRINTS.items():
-        if pattern in hostname.lower():
-            return {
-                "provider": provider,
-                "claimability": claimability,
-                "matched_on": "hostname_pattern",
                 "pattern": pattern,
             }
 
@@ -371,7 +361,7 @@ async def takeover_detect(
     terminal = chain["terminal"]
 
     # Phase 2: Provider classification
-    provider = await _classify_provider(terminal, hostname)
+    provider = await _classify_provider(terminal)
 
     # Phase 3: HTTP/TLS probe (only if we have a CNAME to a known provider or no A records)
     http_evidence = None
@@ -416,8 +406,15 @@ async def takeover_detect(
         signals.append(f"http_fingerprint:{http_evidence['fingerprint']['provider']}")
         if http_evidence["fingerprint"]["claimability"] == "unclaimed":
             signals.append("http_unclaimed")
-    if domain_check and not domain_check["resolves"]:
-        signals.append("external_domain_not_found")
+    if domain_check:
+        rdap = domain_check.get("rdap") or {}
+        statuses = rdap.get("status") or []
+        if rdap.get("registered") is False:
+            signals.append("external_domain_unregistered")
+        elif isinstance(statuses, list) and any(
+            s.lower() in {"removed", "expired", "deleted", "redemption"} for s in statuses
+        ):
+            signals.append("external_domain_expired")
 
     return [{
         "hostname": hostname,

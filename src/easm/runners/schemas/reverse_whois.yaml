@@ -1,0 +1,11 @@
+# Schema: reverse_whois → domain entities
+# Extracts the queried domain as a domain entity so reverse-WHOIS results
+# enter the entity graph instead of being discarded as raw_events only.
+source: reverse_whois
+entities:
+  - type: domain
+    value_from: domain
+    normalize: true
+    attributes:
+      source: reverse_whois
+relations: []

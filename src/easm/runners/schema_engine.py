@@ -99,7 +99,13 @@ def _make_yaml_schema_fn(  # noqa: C901 — schema compilation is inherently com
             for key, ref in list(attrs.items()):
                 if isinstance(ref, str) and ref.startswith("$raw."):
                     raw_key = ref[5:]  # strip "$raw."
-                    attrs[key] = raw.get(raw_key, ref)
+                    if raw_key in raw:
+                        attrs[key] = raw[raw_key]
+                    else:
+                        # Referenced field absent in raw data — omit the
+                        # attribute rather than store the literal "$raw.X"
+                        # placeholder string, which would corrupt the entity.
+                        del attrs[key]
 
             entities.append(EntityCandidate(ent_type, value, attrs))
             resolved_entities.append({"type": ent_type, "value": value, "raw_value": raw_value})

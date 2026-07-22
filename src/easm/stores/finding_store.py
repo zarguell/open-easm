@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -13,6 +14,20 @@ from easm.stores import BaseStore
 
 if TYPE_CHECKING:
     from easm.correlation.rule import Finding
+
+
+def _compute_fingerprint(rule_id: str, target_id: str, entity_ids: list[str]) -> str:
+    """Deterministic sha256 fingerprint for a finding.
+
+    Two findings with the same ``rule_id``, ``target_id`` and set of
+    affected entities are treated as the same finding across pivot cycles.
+    Entity ids are normalised to canonical lowercase UUID form before
+    sorting so that ordering and case differences do not fragment the
+    fingerprint.
+    """
+    canonical_entities = sorted(str(uuid.UUID(eid)) for eid in entity_ids)
+    payload = f"{rule_id}:{target_id}:{canonical_entities}"
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _row_to_finding_dict(row: asyncpg.Record) -> dict[str, Any]:
@@ -89,12 +104,21 @@ class FindingStore(BaseStore):
         ) or 0
 
     async def create_finding(self, finding: Finding) -> uuid.UUID:
+        """Idempotent insert: refreshes ``last_seen_at`` on fingerprint conflict.
+
+        Returns the row id in both the insert and update paths, so callers
+        cannot assume an INSERT occurred.
+        """
+        fingerprint = _compute_fingerprint(
+            finding.rule_id, finding.target_id, finding.entity_ids,
+        )
         row = await self._pool.fetchrow(
             """
             INSERT INTO findings (org_id, target_id, rule_id, risk, headline, description,
                                   entity_ids, evidence, status,
-                                  confidence_score, confidence_level)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9, $10, $11)
+                                  confidence_score, confidence_level, fingerprint)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::jsonb, $9, $10, $11, $12)
+            ON CONFLICT (fingerprint) DO UPDATE SET last_seen_at = NOW()
             RETURNING id
             """,
             finding.org_id,
@@ -108,6 +132,7 @@ class FindingStore(BaseStore):
             finding.status,
             finding.confidence_score,
             finding.confidence_level,
+            fingerprint,
         )
         assert row is not None
         return row["id"]

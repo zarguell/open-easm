@@ -38,6 +38,7 @@ async def test_screenshot_runner_returns_tuple_without_playwright():
 async def test_screenshot_runner_run_once_with_mock_playwright():
     """Test with mocked playwright that takes a screenshot successfully."""
     mock_store = MagicMock()
+    mock_store.pool = None
     mock_store.insert_raw_event = AsyncMock(return_value=True)
 
     mock_target = MagicMock()

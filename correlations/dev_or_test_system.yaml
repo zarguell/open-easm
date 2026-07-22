@@ -12,11 +12,10 @@ collect:
   - method: regex
     field: entity_value
     patterns:
-      - ".*dev.*"
-      - ".*test.*"
-      - ".*staging.*"
-      - ".*uat.*"
-      - ".*internal.*"
+      - "(^|\\.)dev[0-9]*\\."
+      - "(^|\\.)test[0-9]*\\."
+      - "(^|\\.)staging\\."
+      - "(^|\\.)qa[0-9]*\\."
 aggregation:
   field: entity_value
 headline: "Development system exposed: {entity_value}"

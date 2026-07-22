@@ -3,8 +3,9 @@ meta:
   name: "High-risk port exposed to the internet"
   risk: high
   description: >
-    A host was found with a high-risk port open (RDP 3389, SSH 22,
-    Telnet 23, MySQL 3306, PostgreSQL 5432, or Redis 6379).
+    A host was found with a high-risk port open (RDP 3389,
+    Telnet 23, MySQL 3306, PostgreSQL 5432, Redis 6379,
+    Elasticsearch 9200, or Memcached 11211).
 collect:
   - method: exact
     field: entity_type
@@ -13,11 +14,12 @@ collect:
     field: attributes.open_ports
     patterns:
       - '"port": 3389'
-      - '"port": 22'
       - '"port": 23'
       - '"port": 3306'
       - '"port": 5432'
       - '"port": 6379'
+      - '"port": 9200'
+      - '"port": 11211'
 aggregation:
   field: entity_value
 headline: "High-risk port exposed: {entity_value}"
