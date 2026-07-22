@@ -99,14 +99,12 @@ async def main() -> None:
     alembic_cfg = AlembicConfig("alembic.ini")
     # Use sync postgresql driver for alembic (runs in ThreadPoolExecutor)
     alembic_cfg.set_main_option("sqlalchemy.url", dsn)
-    from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
     try:
-        with ThreadPoolExecutor() as executor:
-            await asyncio.wait_for(
-                loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head"),
-                timeout=30,
-            )
+        await asyncio.wait_for(
+            asyncio.to_thread(alembic_upgrade, alembic_cfg, "head"),
+            timeout=30,
+        )
         logger.info("database migrations applied successfully")
     except asyncio.TimeoutError:
         logger.error("database migration timed out — continuing")
