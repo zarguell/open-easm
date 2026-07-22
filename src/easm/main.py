@@ -97,8 +97,8 @@ async def main() -> None:
 
     logger.info("applying database migrations")
     alembic_cfg = AlembicConfig("alembic.ini")
-    async_dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
-    alembic_cfg.set_main_option("sqlalchemy.url", async_dsn)
+    # Use sync postgresql driver for alembic (runs in ThreadPoolExecutor)
+    alembic_cfg.set_main_option("sqlalchemy.url", dsn)
     from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
     try:
