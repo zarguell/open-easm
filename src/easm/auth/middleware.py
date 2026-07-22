@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 
+import asyncpg
 import jwt
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -36,7 +37,8 @@ def _is_trusted_proxy(client_ip: str, trusted_proxies: list[str]) -> bool:
 
 async def auth_middleware(request: Request, call_next) -> Response:
     if _is_exempt(request.url.path):
-        request.state.user = None
+        # Still try session auth for exempt paths (e.g. admin registering users)
+        await _try_session_auth(request)
         return await call_next(request)
 
     from easm.api.deps import get_auth_config, get_store
@@ -61,8 +63,11 @@ async def auth_middleware(request: Request, call_next) -> Response:
                         "role": result["role"],
                     }
                     return await call_next(request)
-            except Exception:
-                logger.warning("api key validation failed", exc_info=True)
+            except (asyncpg.PostgresError, KeyError, ValueError) as e:
+                logger.warning(
+                    "api key validation failed",
+                    exc_info=True, extra={"error": str(e)},
+                )
             return JSONResponse(status_code=401, content={"error": "invalid_api_key"})
 
     # Mode-specific auth
@@ -112,11 +117,43 @@ async def _handle_reverse_proxy(request: Request, call_next, auth_config) -> Res
             "org_id": user["org_id"],
             "role": user["role"],
         }
-    except Exception:
-        logger.warning("reverse proxy user lookup failed", exc_info=True)
+    except (asyncpg.PostgresError, KeyError, ValueError) as e:
+        logger.warning(
+            "reverse proxy user lookup failed",
+            exc_info=True, extra={"error": str(e)},
+        )
         return JSONResponse(status_code=500, content={"error": "user_lookup_failed"})
 
     return await call_next(request)
+
+
+async def _try_session_auth(request: Request) -> None:
+    """Try to populate request.state.user from session cookie. Silently no-ops if no session."""
+    from easm.api.deps import get_auth_config
+
+    auth_config = get_auth_config()
+    if auth_config.local is None:
+        return
+
+    token = request.cookies.get(auth_config.local.cookie_name)
+    if not token:
+        return
+
+    try:
+        from easm.auth.session import decode_session_token
+
+        payload = decode_session_token(token, auth_config.local.session_secret)
+        request.state.user = {
+            "user_id": payload["sub"],
+            "username": payload["username"],
+            "org_id": payload["org_id"],
+            "role": payload["role"],
+        }
+    except (jwt.PyJWTError, KeyError, ValueError) as e:
+        logger.debug(
+            "session token decode failed on exempt path",
+            extra={"error": str(e)},
+        )
 
 
 async def _handle_session_auth(request: Request, call_next, auth_config) -> Response:
@@ -140,7 +177,8 @@ async def _handle_session_auth(request: Request, call_next, auth_config) -> Resp
         }
     except jwt.ExpiredSignatureError:
         return JSONResponse(status_code=401, content={"error": "session_expired"})
-    except Exception:
+    except (jwt.PyJWTError, KeyError, ValueError) as e:
+        logger.debug("invalid session token", extra={"error": str(e)})
         return JSONResponse(status_code=401, content={"error": "invalid_session"})
 
     return await call_next(request)

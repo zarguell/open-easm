@@ -58,6 +58,7 @@ async def get_target(target_id: str) -> TargetDetail:
                 labels=target.labels,
                 match_rules=match_rules,
                 runners=runners,
+                pivot=target.pivot.model_dump() if target.pivot else None,
             )
     raise HTTPException(
         status_code=404,

@@ -108,8 +108,21 @@ class PivotResolver:
 
             from easm.tasks.pivot import execute_pivot
 
+            # Priority: fast/cheap pivots should not be blocked by slow ones
+            _priority = {
+                "dns_resolve": 100,
+                "reverse_dns": 80,
+                "takeover_detect": 70,
+                "subdomain_takeover": 70,
+                "domain_extract": 60,
+                "geoip_enrich": 50,
+                "dns_mail_records": 40,
+                "ip_to_asn": 40,
+            }.get(pivot_rule.via, 10)
+
             await execute_pivot.configure(
                 queue="pivot",
+                priority=_priority,
             ).defer_async(
                 org_id=target.org_id,
                 target_id=target.id,
