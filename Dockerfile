@@ -3,7 +3,7 @@ FROM node:24-slim AS ui-builder
 
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json* ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 COPY ui/ .
 RUN npm run build
 
