@@ -103,8 +103,13 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     try:
         with ThreadPoolExecutor() as executor:
-            await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
+            await asyncio.wait_for(
+                loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head"),
+                timeout=30,
+            )
         logger.info("database migrations applied successfully")
+    except asyncio.TimeoutError:
+        logger.error("database migration timed out — continuing")
     except Exception as e:
         logger.exception("migration failed", error=str(e))
         raise
