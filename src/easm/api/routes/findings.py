@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
@@ -95,7 +95,7 @@ async def list_findings(
     confidence_min: float | None = Query(None, description="Minimum confidence score (0-100)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    org_id_: str = Depends(lambda r: current_org_id(r)),
+    org_id_: str = Depends(current_org_id),
     store: Store = Depends(get_store),
 ):
     results = await store.list_findings(
@@ -118,7 +118,7 @@ async def list_findings(
 @router.get("/findings/sla-summary")
 async def sla_summary(
     target_id: str | None = Query(None),
-    org_id_: str = Depends(lambda r: current_org_id(r)),
+    org_id_: str = Depends(current_org_id),
     store: Store = Depends(get_store),
 ):
     findings = await store.list_findings(
