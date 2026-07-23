@@ -134,8 +134,8 @@ async def main() -> None:
         try:
             kev_count = await asyncio.wait_for(refresh_kev_cache(pool), timeout=30)
             logger.info("initial kev cache populated", count=kev_count)
-        except (asyncio.TimeoutError, OSError, ValueError) as e:
-            logger.exception(
+        except Exception as e:
+            logger.warning(
                 "initial kev cache population failed (non-fatal)",
                 extra={"error": str(e)},
             )
@@ -147,8 +147,8 @@ async def main() -> None:
             from easm.epss import refresh_epss_cache
             epss_count = await asyncio.wait_for(refresh_epss_cache(pool), timeout=120)
             logger.info("initial epss cache populated", count=epss_count)
-        except (asyncio.TimeoutError, OSError, ValueError) as e:
-            logger.exception(
+        except Exception as e:
+            logger.warning(
                 "initial epss cache population failed (non-fatal)",
                 extra={"error": str(e)},
             )
