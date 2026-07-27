@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import asyncpg
@@ -13,6 +14,8 @@ from easm.correlation.rule import (
     CorrelationRule,
     Finding,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_finding_confidence(matched_entities: list[dict]) -> tuple[float, str]:
@@ -94,7 +97,11 @@ class CorrelationEngine:
             try:
                 rule_findings = await self.evaluate(rule, org_id, target_id)
                 all_findings.extend(rule_findings)
-            except Exception:
+            except (asyncpg.PostgresError, ValueError, KeyError) as e:
+                logger.warning(
+                    "correlation rule evaluation failed",
+                    extra={"rule_id": rule.id, "error": str(e)},
+                )
                 continue
         return all_findings
 
@@ -182,8 +189,11 @@ class CorrelationEngine:
         if field == "entity_value":
             return "entity_value"
         if field.startswith("attributes."):
-            attr_key = field[len("attributes."):]
-            return f"attributes->>'{attr_key}'"
+            attr_path = field[len("attributes."):]
+            parts = attr_path.split(".", 1)
+            if len(parts) == 1:
+                return f"attributes->>'{parts[0]}'"
+            return f"attributes->'{parts[0]}'->>'{parts[1]}'"
         return field
 
     def _resolve_field(self, entity: dict[str, Any], field: str) -> str:
@@ -192,8 +202,13 @@ class CorrelationEngine:
         if field == "entity_type":
             return entity.get("entity_type", "")
         if field.startswith("attributes."):
-            attr_key = field[len("attributes."):]
+            attr_path = field[len("attributes."):]
+            parts = attr_path.split(".", 1)
             attrs = entity.get("attributes", {})
-            val = attrs.get(attr_key)
+            if len(parts) == 1:
+                val = attrs.get(parts[0])
+            else:
+                inner = attrs.get(parts[0], {})
+                val = inner.get(parts[1]) if isinstance(inner, dict) else None
             return str(val) if val is not None else ""
         return str(entity.get(field, ""))

@@ -1,0 +1,12 @@
+# Schema: searchengine → domain entities
+source: searchengine
+entities:
+  - type: domain
+    value_from: subdomain
+    normalize: true
+    attributes:
+      source: searchengine
+      source_engine: "$raw.source_engine"
+      discovered_from: "$raw.domain"
+      url: "$raw.url"
+relations: []

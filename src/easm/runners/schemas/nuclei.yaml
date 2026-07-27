@@ -1,0 +1,10 @@
+# Schema: nuclei → hostname entities with vulnerability data
+source: nuclei
+entities:
+  - type: hostname
+    value_from: hostname
+    normalize: true
+    attributes:
+      source: nuclei
+      vulnerability: "$raw.vulnerability"
+relations: []

@@ -55,7 +55,7 @@ export const EntityTable: FC<EntityTableProps> = ({
           {entities.map((entity) => (
             <tr
               key={entity.id}
-              onClick={() => onSelectEntity(entity.id)}
+              onClick={() => { onSelectEntity(entity.id); }}
               className={`border-b border-hairline cursor-pointer transition-colors hover:bg-canvas-soft ${
                 selectedEntityId === entity.id ? 'bg-canvas-soft' : ''
               }`}

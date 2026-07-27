@@ -10,6 +10,7 @@ import { Button } from '../shared/Button'
 import { AssetInventoryTable } from './AssetInventoryTable'
 import { AssetDetailPanel } from './AssetDetailPanel'
 import { AssetExportPanel } from './AssetExportPanel'
+import { selectClass } from '../../lib/styles'
 import type { AssetInventoryItem } from '../../api/assets'
 
 const confidenceLevels = ['', 'high', 'medium', 'low']
@@ -19,9 +20,6 @@ const feedStates = [
   { label: 'Eligible', value: 'true' },
   { label: 'Held', value: 'false' },
 ]
-
-const selectClass =
-  'h-10 rounded-sm border border-hairline bg-canvas-soft px-3 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-primary'
 
 function levelLabel(level: string) {
   if (!level) return 'All levels'
@@ -47,7 +45,7 @@ export function AssetInventoryView() {
   )
 
   const { data, isLoading, isError, error, refetch, isFetching } = useAssetInventory(inventoryParams)
-  const assets = (data?.assets ?? []) as AssetInventoryItem[]
+  const assets = (data?.assets ?? [])
   const totalCount = data?.total_count ?? assets.length
 
   const filteredAssets = useMemo(() => {
@@ -87,13 +85,13 @@ export function AssetInventoryView() {
         <div className="grid gap-3 rounded-md border border-hairline bg-canvas p-4 lg:grid-cols-[minmax(260px,1fr)_160px_160px_170px]">
           <SearchInput
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); }}
             placeholder="Search entity value..."
             className="min-w-0"
           />
           <label className="grid gap-1">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">Confidence</span>
-            <select className={selectClass} value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value)}>
+            <select className={selectClass} value={confidenceLevel} onChange={(e) => { setConfidenceLevel(e.target.value); }}>
               {confidenceLevels.map((level) => (
                 <option key={level || 'all'} value={level}>
                   {levelLabel(level)}
@@ -103,7 +101,7 @@ export function AssetInventoryView() {
           </label>
           <label className="grid gap-1">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">Risk</span>
-            <select className={selectClass} value={riskLevel} onChange={(e) => setRiskLevel(e.target.value)}>
+            <select className={selectClass} value={riskLevel} onChange={(e) => { setRiskLevel(e.target.value); }}>
               {riskLevels.map((level) => (
                 <option key={level || 'all'} value={level}>
                   {levelLabel(level)}
@@ -113,7 +111,7 @@ export function AssetInventoryView() {
           </label>
           <label className="grid gap-1">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">Feed</span>
-            <select className={selectClass} value={feedEligible} onChange={(e) => setFeedEligible(e.target.value)}>
+            <select className={selectClass} value={feedEligible} onChange={(e) => { setFeedEligible(e.target.value); }}>
               {feedStates.map((state) => (
                 <option key={state.value || 'all'} value={state.value}>
                   {state.label}
@@ -154,7 +152,7 @@ export function AssetInventoryView() {
 
       <SlideOver
         open={selectedAssetFromResults !== null}
-        onClose={() => setSelectedAsset(null)}
+        onClose={() => { setSelectedAsset(null); }}
         title="Asset Detail"
       >
         {selectedAssetFromResults && <AssetDetailPanel asset={selectedAssetFromResults} />}

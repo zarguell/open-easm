@@ -7,6 +7,7 @@ import {
   type AlertRule,
   type AlertFeedEntry,
 } from '../../api/alerts'
+import { selectClass } from '../../lib/styles'
 
 function severityColor(severity: string) {
   switch (severity) {
@@ -41,9 +42,6 @@ function formatTime(iso: string) {
 const riskLevels = ['', 'critical', 'high', 'medium', 'low']
 const statusOptions = ['', 'open', 'acknowledged', 'resolved', 'false_positive']
 
-const selectClass =
-  'h-8 rounded-sm border border-hairline bg-canvas-soft px-2 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-primary'
-
 function levelLabel(level: string) {
   if (!level) return 'All'
   return `${level.charAt(0).toUpperCase()}${level.slice(1).replace('_', ' ')}`
@@ -61,8 +59,8 @@ function FeedTab() {
     setError(null)
     getAlertFeed({ risk: riskFilter || undefined, status: statusFilter || undefined })
       .then(setFeed)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .catch((e) => { setError(e.message); })
+      .finally(() => { setLoading(false); })
   }, [riskFilter, statusFilter])
 
   useEffect(() => {
@@ -84,7 +82,7 @@ function FeedTab() {
       <div className="flex items-center gap-3 flex-wrap">
         <label className="flex items-center gap-2">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-mute">Risk</span>
-          <select className={selectClass} value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)}>
+          <select className={selectClass} value={riskFilter} onChange={(e) => { setRiskFilter(e.target.value); }}>
             {riskLevels.map((level) => (
               <option key={level || 'all'} value={level}>{levelLabel(level)}</option>
             ))}
@@ -92,7 +90,7 @@ function FeedTab() {
         </label>
         <label className="flex items-center gap-2">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-mute">Status</span>
-          <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select className={selectClass} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); }}>
             {statusOptions.map((s) => (
               <option key={s || 'all'} value={s}>{levelLabel(s)}</option>
             ))}
@@ -110,7 +108,7 @@ function FeedTab() {
           {feed.map((entry) => (
             <div
               key={entry.id}
-              className="rounded-xl border border-hairline bg-surface p-4 shadow-sm flex items-start gap-3"
+              className="rounded-xl border border-hairline bg-canvas-elevated p-4 shadow-sm flex items-start gap-3"
             >
               <div className="shrink-0 mt-0.5">{severityIcon(entry.severity)}</div>
 
@@ -160,8 +158,8 @@ function RulesTab() {
     setLoading(true)
     getAlertRules()
       .then(setRules)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .catch((e) => { setError(e.message); })
+      .finally(() => { setLoading(false); })
   }, [])
 
   if (loading) return <p className="text-mute">Loading rules...</p>
@@ -182,7 +180,7 @@ function RulesTab() {
       {rules.map((rule, idx) => (
         <div
           key={idx}
-          className="rounded-xl border border-hairline bg-surface p-4 shadow-sm flex items-center gap-4"
+          className="rounded-xl border border-hairline bg-canvas-elevated p-4 shadow-sm flex items-center gap-4"
         >
           <div className="flex-1 min-w-0 space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -226,7 +224,7 @@ export function AlertsView() {
         {(['feed', 'rules'] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); }}
             className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
               tab === t
                 ? 'text-primary border-b-2 border-primary'

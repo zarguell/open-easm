@@ -57,7 +57,7 @@ export function RunsView() {
             <Button
               key={s}
               variant={statusFilter === s ? 'primary' : 'outline'}
-              onClick={() => setStatusFilter(s)}
+              onClick={() => { setStatusFilter(s); }}
               className="px-2.5 py-1 text-xs"
             >
               {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
@@ -73,7 +73,7 @@ export function RunsView() {
           <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">Target</span>
           <select
             value={targetFilter}
-            onChange={e => setTargetFilter(e.target.value)}
+            onChange={e => { setTargetFilter(e.target.value); }}
             className="rounded-sm border border-hairline bg-canvas px-2 py-1 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="all">All targets</option>
@@ -88,7 +88,7 @@ export function RunsView() {
           <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">Runner</span>
           <select
             value={runnerFilter}
-            onChange={e => setRunnerFilter(e.target.value as RunnerFilter)}
+            onChange={e => { setRunnerFilter(e.target.value as RunnerFilter); }}
             className="rounded-sm border border-hairline bg-canvas px-2 py-1 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-primary"
           >
             {COMMON_RUNNERS.map(r => (
