@@ -24,7 +24,7 @@ async def refresh_epss_cache(pool: Any) -> int:
 
     Returns the number of CVEs upserted.
     """
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
         resp = await client.get(EPSS_URL)
         resp.raise_for_status()
 

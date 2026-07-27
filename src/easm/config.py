@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -300,7 +301,9 @@ def load_config(path: str | Path) -> Config:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
-    raw = yaml.safe_load(path.read_text())
+    raw_text = path.read_text()
+    raw_text = os.path.expandvars(raw_text)
+    raw = yaml.safe_load(raw_text)
     if raw is None:
         raise ValueError("Config file is empty")
     return Config.model_validate(raw)

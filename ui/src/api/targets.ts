@@ -24,13 +24,28 @@ export function useTargets() {
   })
 }
 
+export interface AllowedPivot {
+  from: string
+  to: string
+  via: string
+  cooldown_hours?: number
+}
+
+export interface PivotConfig {
+  enabled: boolean
+  max_depth: number
+  max_concurrent: number
+  scope_mode: string
+  allowed_pivots: AllowedPivot[]
+}
+
 export function useTarget(targetId: string | null) {
   return useQuery({
     queryKey: ['target', targetId],
     queryFn: () =>
       api
         .get(`targets/${targetId}`)
-        .json<TargetSummary & { match_rules: Record<string, unknown>; runners: Record<string, unknown> }>(),
+        .json<TargetSummary & { match_rules: Record<string, unknown>; runners: Record<string, unknown>; pivot: PivotConfig | null }>(),
     enabled: targetId !== null,
   })
 }

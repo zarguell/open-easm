@@ -34,7 +34,7 @@ class FindingStream:
                 try:
                     q.get_nowait()
                 except asyncio.QueueEmpty:
-                    pass
+                    logger.debug("queue became empty during overflow drop")
                 q.put_nowait(finding)
 
     @property

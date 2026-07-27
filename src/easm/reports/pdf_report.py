@@ -178,7 +178,7 @@ def _pillar_table(risk, styles):
     return _table(rows, [4.4 * cm, 2.6 * cm, 3.7 * cm, 4.1 * cm, 2.2 * cm, 8.5 * cm], styles=styles)
 
 
-def _actions_table(findings, styles, limit=12):
+def _actions_table(findings, styles, limit=50):
     rows = [["Priority", "Severity", "Headline", "Recommendation"]]
     sorted_f = sorted(findings, key=lambda f: SEVERITY_ORDER.get(f.get("risk", "info"), 9))
     for f in sorted_f[:limit]:
@@ -190,7 +190,7 @@ def _actions_table(findings, styles, limit=12):
     return _table(rows, [2.5 * cm, 2.2 * cm, 10 * cm, 10.8 * cm], small=True, styles=styles)
 
 
-def _findings_table(findings, styles, limit=40):
+def _findings_table(findings, styles, limit=200):
     rows = [["Severity", "Rule", "Headline", "Status", "Confidence"]]
     for f in sorted(findings, key=lambda x: SEVERITY_ORDER.get(x.get("risk", "info"), 9))[:limit]:
         rows.append([f.get("risk", ""), f.get("rule_id", ""), f.get("headline", ""), f.get("status", ""), f.get("confidence_level", "")])
@@ -199,7 +199,7 @@ def _findings_table(findings, styles, limit=40):
     return _table(rows, [2.5 * cm, 4 * cm, 10 * cm, 3 * cm, 3 * cm], small=True, styles=styles)
 
 
-def _assets_table(entities, styles, limit=50):
+def _assets_table(entities, styles, limit=500):
     rows = [["Entity", "Type", "Risk", "Confidence", "First Seen"]]
     for e in entities[:limit]:
         rows.append([

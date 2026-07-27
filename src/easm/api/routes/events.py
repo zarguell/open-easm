@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 
 from easm.api.deps import get_store
+from easm.api.pagination import PaginatedResponse
 from easm.api.schemas import EventDetail, EventSummary
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -27,7 +28,7 @@ async def count_events(
     return {"count": count}
 
 
-@router.get("", response_model=list[EventSummary])
+@router.get("", response_model=PaginatedResponse[EventSummary])
 async def list_events(
     target_id: str | None = None,
     source: str | None = None,
@@ -35,14 +36,21 @@ async def list_events(
     end: str | None = None,
     limit: int = Query(default=50, ge=1, le=500),
     cursor: str | None = None,
-) -> list[EventSummary]:
+) -> PaginatedResponse[EventSummary]:
     store = get_store()
     start_dt = datetime.fromisoformat(start) if start else None
     end_dt = datetime.fromisoformat(end) if end else None
-    events, _ = await store.list_events(
+    events, next_cursor = await store.list_events(
         target_id=target_id, source=source, start=start_dt, end=end_dt, limit=limit, cursor=cursor,
     )
-    return [EventSummary(**e) for e in events]
+    total = await store.count_events(
+        target_id=target_id, source=source, start=start_dt, end=end_dt,
+    )
+    return PaginatedResponse(
+        items=[EventSummary(**e) for e in events],
+        total=total,
+        next_cursor=next_cursor,
+    )
 
 
 @router.get("/{event_id}", response_model=EventDetail)

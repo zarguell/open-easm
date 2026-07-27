@@ -56,7 +56,7 @@ export const QuickTrigger: FC = () => {
                         className="text-xs px-3 py-1"
                         disabled={triggerRun.isPending}
                         onClick={() =>
-                          triggerRun.mutate({ targetId: target.id, runner: runnerName })
+                          { triggerRun.mutate({ targetId: target.id, runner: runnerName }); }
                         }
                       >
                         {runnerName}

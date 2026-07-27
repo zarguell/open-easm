@@ -72,7 +72,10 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://localhost:5173",
+            "http://localhost:8000",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -85,7 +88,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unhandled exception", extra={"path": request.url.path})
-        return JSONResponse(status_code=500, content={"error": "internal", "detail": str(exc)})
+        return JSONResponse(
+            status_code=500,
+            content={"error": "internal", "detail": "internal server error"},
+        )
 
     app.include_router(health.router, prefix="/api")
     app.include_router(targets.router, prefix="/api")
@@ -111,8 +117,12 @@ def create_app() -> FastAPI:
     import os
     _static_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "dist")
     if os.path.isdir(_static_dir):
-        from fastapi.responses import FileResponse
+        from fastapi.responses import FileResponse, RedirectResponse
         from fastapi.staticfiles import StaticFiles  # noqa: F401
+
+        @app.get("/")
+        async def root_redirect():
+            return RedirectResponse(url="/ui")
 
         @app.get("/ui/{full_path:path}")
         async def serve_spa(full_path: str):
