@@ -78,7 +78,7 @@ export function CertificateInventoryView() {
         <div className="min-h-0 flex-1">
           {(inventoryError || summaryError) && (
             <ErrorDisplay
-              message={inventoryErrorDetail?.message || summaryErrorDetail?.message || 'Unable to load certificates'}
+              message={inventoryErrorDetail?.message ?? summaryErrorDetail?.message ?? 'Unable to load certificates'}
               onRetry={retry}
             />
           )}
@@ -104,7 +104,7 @@ export function CertificateInventoryView() {
 
       <SlideOver
         open={selectedCertificate !== null}
-        onClose={() => setSelectedCertificate(null)}
+        onClose={() => { setSelectedCertificate(null); }}
         title="Certificate Detail"
       >
         {selectedCertificate && <CertificateDetailPanel certificate={selectedCertificate} />}
@@ -126,7 +126,7 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
       <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">{label}</span>
       <select
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => { onChange(event.target.value); }}
         className="h-9 rounded-sm border border-hairline bg-canvas px-2 font-mono text-xs text-body outline-none transition-colors hover:border-hairline-soft focus:border-primary"
       >
         <option value="">All</option>

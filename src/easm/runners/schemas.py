@@ -53,8 +53,11 @@ def asnmap(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate
     return entities, rels
 
 
-def subfinder(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
-    host = raw.get("host", "").strip()
+def subfinder(raw: dict | str) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
+    if isinstance(raw, str):
+        host = raw.strip()
+    else:
+        host = raw.get("host", "").strip()
     if not host:
         return [], []
     return [EntityCandidate("hostname", normalize_entity_value("hostname", host),
@@ -166,10 +169,13 @@ def portscan(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandida
     entities: list[EntityCandidate] = []
     nh = normalize_entity_value("hostname", hostname)
     entities.append(EntityCandidate("hostname", nh, {"source": "portscan", "open_ports": ports}))
+    rels: list[RelationshipCandidate] = []
     if ip:
-        entities.append(EntityCandidate("ip", normalize_entity_value("ip", ip),
+        ni = normalize_entity_value("ip", ip)
+        entities.append(EntityCandidate("ip", ni,
                                         {"source": "portscan", "open_ports": ports}))
-    return entities, []
+        rels.append(RelationshipCandidate("hostname", nh, "ip", ni, "resolves_to", "pivot"))
+    return entities, rels
 
 
 def screenshot(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -179,6 +185,21 @@ def screenshot(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
         return [], []
     return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname),
                             {"source": "screenshot", "screenshot_path": sp})], []
+
+
+def _extract_san_name(name: str) -> str | None:
+    """Extract a DNS name from a cert SAN entry. Returns None for non-DNS entries."""
+    clean = name.strip()
+    # Filter out IP Address entries
+    if clean.lower().startswith("ip address:"):
+        return None
+    # Strip DNS: prefix
+    if clean.startswith("DNS:"):
+        clean = clean[4:]
+    # Expand wildcards
+    if clean.startswith("*."):
+        clean = clean[2:]
+    return clean if clean else None
 
 
 def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -192,16 +213,19 @@ def certstream(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandi
     if isinstance(san_ext, dict):
         for names in san_ext.values():
             if isinstance(names, list):
-                all_names.update(names)
+                for name in names:
+                    extracted = _extract_san_name(name)
+                    if extracted:
+                        all_names.add(extracted)
             elif isinstance(names, str):
-                all_names.add(names)
+                extracted = _extract_san_name(names)
+                if extracted:
+                    all_names.add(extracted)
     elif isinstance(san_ext, str):
         for name in san_ext.split(","):
-            clean_name = name.strip()
-            if clean_name.startswith("DNS:"):
-                clean_name = clean_name[4:]
-            if clean_name:
-                all_names.add(clean_name)
+            extracted = _extract_san_name(name)
+            if extracted:
+                all_names.add(extracted)
     if not all_names:
         return [], []
     entities: list[EntityCandidate] = []
@@ -510,17 +534,57 @@ def searchengine(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCan
 
 def subdomain_takeover(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
     hostname = raw.get("hostname", "").strip()
-    tc = raw.get("takeover_check")
-    if not hostname or not tc:
+    if not hostname:
         return [], []
-    attrs: dict[str, Any] = {
-        "source": "takeover",
-        "takeover_risk": tc.get("takeover_risk", False),
-        "fingerprint_matches": tc.get("fingerprint_matches", []),
-    }
-    if tc.get("cname_target"):
-        attrs["cname_target"] = tc["cname_target"]
-    return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), attrs)], []
+
+    attrs: dict[str, Any] = {"source": "takeover"}
+
+    # New v2 format: takeover_evidence
+    te = raw.get("takeover_evidence")
+    if te:
+        attrs["takeover_evidence"] = te
+        signals = te.get("signals", [])
+        signal_set = set(signals)
+        has_http_confirmation = (
+            "http_unclaimed" in signal_set
+            or any(s.startswith("http_fingerprint:") for s in signal_set)
+        )
+        has_dns_signal = not has_http_confirmation and any(
+            s.startswith(("provider:", "external_domain_"))
+            for s in signal_set
+        )
+        attrs["takeover_risk"] = has_http_confirmation
+        attrs["takeover_suspicion"] = has_dns_signal and not has_http_confirmation
+        attrs["signal_count"] = te.get("signal_count", 0)
+        provider = te.get("provider")
+        if provider:
+            attrs["takeover_provider"] = provider["provider"]
+            attrs["claimability"] = provider["claimability"]
+        http_probe = te.get("http_probe")
+        if http_probe and http_probe.get("fingerprint"):
+            attrs["http_fingerprint"] = http_probe["fingerprint"]
+        dns_chain = te.get("dns_chain")
+        if dns_chain:
+            attrs["dns_chain"] = {
+                "a": dns_chain.get("a", []),
+                "cname": dns_chain.get("cname", []),
+                "terminal": dns_chain.get("terminal"),
+                "delegation_ns": dns_chain.get("delegation_ns", []),
+            }
+            if dns_chain.get("delegation_ns"):
+                attrs["ns_delegation_issues"] = True
+        return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), attrs)], []
+
+    # Legacy v1 format: takeover_check
+    tc = raw.get("takeover_check")
+    if tc:
+        attrs["takeover_risk"] = tc.get("takeover_risk", False)
+        attrs["fingerprint_matches"] = tc.get("fingerprint_matches", [])
+        if tc.get("cname_target"):
+            attrs["cname_target"] = tc["cname_target"]
+        return [EntityCandidate("hostname", normalize_entity_value("hostname", hostname), attrs)], []
+
+    return [], []
 
 
 def ripe_stat(raw: dict) -> tuple[list[EntityCandidate], list[RelationshipCandidate]]:
@@ -606,15 +670,49 @@ def cpe_vuln_enrich(raw: dict) -> tuple[list[EntityCandidate], list[Relationship
     ], []
 
 
-OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {
-    "asnmap": asnmap, "subfinder": subfinder, "dnstwist": dnstwist,
-    "crtsh": crtsh, "certspotter": crtsh, "nuclei": nuclei, "wappalyzer": wappalyzer,
-    "commoncrawl": commoncrawl, "portscan": portscan, "screenshot": screenshot,
-    "certstream": certstream, "dns": dns, "reverse_dns": reverse_dns,
-    "domain_extract": domain_extract, "geoip": geoip, "tls_cert": tls_cert,
-    "dns_mail_records": dns_mail_records, "shodan": shodan, "abuseipdb": abuseipdb,
-    "greynoise": greynoise, "urlscan": urlscan, "censys": censys,
-    "securitytrails": passive_dns, "cloud_enum": cloud_bucket, "searchengine": searchengine,
-    "takeover": subdomain_takeover, "ripe_stat": ripe_stat,
-    "rdap": rdap, "domain_rdap": domain_rdap, "cpe_vuln_enrich": cpe_vuln_enrich,
-}
+OUTPUT_SCHEMAS: dict[str, OutputSchemaFn] = {}
+
+
+def _init_output_schemas() -> dict[str, OutputSchemaFn]:
+    """Build OUTPUT_SCHEMAS by combining YAML-declared schemas with Python schemas.
+
+    The :mod:`easm.runners.schema_engine` loads YAML schemas first (for
+    simple sources like subfinder, screenshot, searchengine). Complex
+    sources (certificate parsing, DNS branching, takeover fingerprinting)
+    remain as Python functions in this module and overlay the YAML base.
+    """
+    schemas: dict[str, OutputSchemaFn] = {}
+    try:
+        from easm.runners.schema_engine import _load_yaml_schemas
+
+        schemas.update(_load_yaml_schemas())
+    except (ImportError, ValueError, KeyError) as exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "YAML schema loading skipped: %s", exc, exc_info=True,
+        )
+
+    # Python schemas — complex sources that cannot be declarative yet.
+    python_schemas: dict[str, OutputSchemaFn] = {
+        "asnmap": asnmap, "subfinder": subfinder, "dnstwist": dnstwist,
+        "crtsh": crtsh, "certspotter": crtsh, "nuclei": nuclei, "wappalyzer": wappalyzer,
+        "commoncrawl": commoncrawl, "portscan": portscan, "screenshot": screenshot,
+        "certstream": certstream, "dns": dns, "reverse_dns": reverse_dns,
+        "domain_extract": domain_extract, "geoip": geoip, "tls_cert": tls_cert,
+        "dns_mail_records": dns_mail_records, "shodan": shodan, "abuseipdb": abuseipdb,
+        "greynoise": greynoise, "urlscan": urlscan, "censys": censys,
+        "securitytrails": passive_dns, "cloud_enum": cloud_bucket, "searchengine": searchengine,
+        "takeover": subdomain_takeover, "takeover_detect": subdomain_takeover,
+        "ripe_stat": ripe_stat, "rdap": rdap, "domain_rdap": domain_rdap,
+        "cpe_vuln_enrich": cpe_vuln_enrich,
+    }
+    # YAML takes priority; Python fills gaps
+    for name, fn in python_schemas.items():
+        if name not in schemas:
+            schemas[name] = fn
+
+    return schemas
+
+
+OUTPUT_SCHEMAS.update(_init_output_schemas())

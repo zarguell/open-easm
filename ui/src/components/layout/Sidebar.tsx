@@ -61,6 +61,7 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
 
       {/* mobile sidebar */}
       <aside
+        aria-label="Main navigation"
         className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-canvas border-r border-hairline transition-transform duration-200 md:hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } w-[240px]`}
@@ -76,7 +77,7 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
           </button>
         </div>
 
-        <nav className="flex-1 py-2 flex flex-col gap-0.5 px-2">
+        <nav aria-label="Main navigation" className="flex-1 py-2 flex flex-col gap-0.5 px-2">
           {navItems.map(({ icon: Icon, label, path }) => {
             const isActive =
               path === "/"
@@ -86,7 +87,8 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
             return (
               <button
                 key={path}
-                onClick={() => handleNav(path)}
+                onClick={() => { handleNav(path); }}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer ${
                   isActive
                     ? "bg-canvas-soft text-primary border-l-2 border-primary"
@@ -103,12 +105,12 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
       </aside>
 
       {/* tablet sidebar */}
-      <aside className="hidden md:flex lg:hidden flex-col bg-canvas border-r border-hairline shrink-0 w-16">
+      <aside aria-label="Main navigation" className="hidden md:flex lg:hidden flex-col bg-canvas border-r border-hairline shrink-0 w-16">
         <div className="flex items-center h-14 px-4 border-b border-hairline">
           <Shield className="w-5 h-5 text-primary mx-auto" />
         </div>
 
-        <nav className="flex-1 py-2 flex flex-col gap-0.5 px-2">
+        <nav aria-label="Main navigation" className="flex-1 py-2 flex flex-col gap-0.5 px-2">
           {navItems.map(({ icon: Icon, label, path }) => {
             const isActive =
               path === "/"
@@ -118,7 +120,8 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
             return (
               <button
                 key={path}
-                onClick={() => handleNav(path)}
+                onClick={() => { handleNav(path); }}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center justify-center px-0 py-2 rounded-md transition-colors cursor-pointer ${
                   isActive
                     ? "bg-canvas-soft text-primary border-l-2 border-primary"
@@ -135,6 +138,7 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
 
       {/* desktop sidebar */}
       <aside
+        aria-label="Main navigation"
         className={`hidden lg:flex flex-col bg-canvas border-r border-hairline shrink-0 transition-[width] duration-200 ${
           expanded ? "w-[240px]" : "w-16"
         }`}
@@ -147,7 +151,7 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
           )}
         </div>
 
-        <nav className="flex-1 py-2 flex flex-col gap-0.5 px-2">
+        <nav aria-label="Main navigation" className="flex-1 py-2 flex flex-col gap-0.5 px-2">
           {navItems.map(({ icon: Icon, label, path }) => {
             const isActive =
               path === "/"
@@ -157,7 +161,8 @@ export function Sidebar({ expanded, onToggle, mobileOpen, onMobileClose }: Sideb
             return (
               <button
                 key={path}
-                onClick={() => handleNav(path)}
+                onClick={() => { handleNav(path); }}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-md transition-colors cursor-pointer ${
                   expanded ? "px-3 py-2" : "px-0 py-2 justify-center"
                 } ${

@@ -145,3 +145,63 @@ async def test_finding_has_timestamps(store: Store):
     assert result["first_seen_at"] is not None
     assert result["last_seen_at"] is not None
     assert result["created_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_create_finding_dedupes_on_fingerprint(store: Store):
+    """Re-inserting the same finding is idempotent: same id, single row."""
+    eid = str(uuid.uuid4())
+    f = Finding(
+        org_id="default",
+        target_id="dedup-target",
+        rule_id="dedup_rule",
+        risk="high",
+        headline="Dedup me",
+        entity_ids=[eid],
+    )
+    first_id = await store.create_finding(f)
+    second_id = await store.create_finding(f)
+
+    assert second_id == first_id
+    total = await store.count_findings(target_id="dedup-target", rule_id="dedup_rule")
+    assert total == 1
+
+
+@pytest.mark.asyncio
+async def test_create_finding_distinguishes_different_entities(store: Store):
+    """Findings with the same rule/target but different entities are distinct rows."""
+    f1 = Finding(
+        org_id="default", target_id="distinct-target", rule_id="rule_x",
+        risk="high", headline="A", entity_ids=[str(uuid.uuid4())],
+    )
+    f2 = Finding(
+        org_id="default", target_id="distinct-target", rule_id="rule_x",
+        risk="high", headline="B", entity_ids=[str(uuid.uuid4())],
+    )
+    id1 = await store.create_finding(f1)
+    id2 = await store.create_finding(f2)
+
+    assert id1 != id2
+    total = await store.count_findings(target_id="distinct-target", rule_id="rule_x")
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_create_finding_dedupes_regardless_of_entity_order(store: Store):
+    """Fingerprint must be order-independent over entity_ids."""
+    eid_a = str(uuid.uuid4())
+    eid_b = str(uuid.uuid4())
+    f_ordered = Finding(
+        org_id="default", target_id="order-target", rule_id="order_rule",
+        risk="medium", headline="Ordered", entity_ids=[eid_a, eid_b],
+    )
+    f_shuffled = Finding(
+        org_id="default", target_id="order-target", rule_id="order_rule",
+        risk="medium", headline="Shuffled", entity_ids=[eid_b, eid_a],
+    )
+    id1 = await store.create_finding(f_ordered)
+    id2 = await store.create_finding(f_shuffled)
+
+    assert id1 == id2
+    total = await store.count_findings(target_id="order-target", rule_id="order_rule")
+    assert total == 1

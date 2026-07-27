@@ -95,12 +95,17 @@ export function GeoMap() {
       const { latitude, longitude, city, country_name } = getGeoAttrs(ip)!;
       const lngLat = new maplibregl.LngLat(longitude!, latitude!);
 
-      const popup = new maplibregl.Popup({ offset: 25 }).setHTML(
-        `<div>
-          <strong>${ip.entity_value}</strong><br />
-          ${city ? `${city}, ` : ""}${country_name || ""}
-        </div>`
+      const el = document.createElement("div");
+      const strong = document.createElement("strong");
+      strong.textContent = ip.entity_value;
+      el.appendChild(strong);
+      const br = document.createElement("br");
+      el.appendChild(br);
+      const locationText = document.createTextNode(
+        `${city ? `${city}, ` : ""}${country_name || ""}`
       );
+      el.appendChild(locationText);
+      const popup = new maplibregl.Popup({ offset: 25 }).setDOMContent(el);
 
       new maplibregl.Marker({ color: "#3b82f6" })
         .setLngLat(lngLat)

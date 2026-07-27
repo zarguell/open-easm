@@ -1,11 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import ky from 'ky'
-
-const api = ky.create({
-  prefix: '/api',
-  headers: { Accept: 'application/json' },
-  timeout: 30_000,
-})
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import api from "./client";
+import type { PaginatedResponse } from "../lib/types";
 
 export interface Finding {
   id: string
@@ -14,10 +9,12 @@ export interface Finding {
   rule_id: string
   risk: string
   headline: string
-  description: string
+  description: string | null
   entity_ids: string[]
   evidence: Record<string, unknown>
   status: string
+  confidence_level?: string
+  confidence_score?: number
   first_seen_at: string | null
   last_seen_at: string | null
   created_at: string | null
@@ -25,6 +22,7 @@ export interface Finding {
 
 export interface FindingsResponse {
   findings: Finding[]
+  total: number
 }
 
 export interface FindingsParams {
@@ -38,38 +36,44 @@ export interface FindingsParams {
 }
 
 export function useFindings(params: FindingsParams) {
-  const [findings, setFindings] = useState<Finding[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  return useQuery({
+    queryKey: ["findings", params],
+    queryFn: async () => {
+      const searchParams: Record<string, string> = {};
+      if (params.target_id) searchParams.target_id = params.target_id;
+      if (params.risk) searchParams.risk = params.risk;
+      if (params.status) searchParams.status = params.status;
+      if (params.rule_id) searchParams.rule_id = params.rule_id;
+      if (params.q) searchParams.q = params.q;
+      if (params.limit) searchParams.limit = String(params.limit);
+      if (params.offset) searchParams.offset = String(params.offset);
+      const resp = await api.get("findings", { searchParams }).json<PaginatedResponse<Finding>>();
+      return { findings: resp.items, total: resp.total };
+    },
+    placeholderData: (prev) => prev,
+  });
+}
 
-  const fetchFindings = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const searchParams: Record<string, string> = {}
-      if (params.target_id) searchParams.target_id = params.target_id
-      if (params.risk) searchParams.risk = params.risk
-      if (params.status) searchParams.status = params.status
-      if (params.rule_id) searchParams.rule_id = params.rule_id
-      if (params.q) searchParams.q = params.q
-      searchParams.limit = String(params.limit ?? 50)
-      searchParams.offset = String(params.offset ?? 0)
-      const data = await api.get('findings', { searchParams }).json<FindingsResponse>()
-      setFindings(data.findings)
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to fetch findings')
-    } finally {
-      setLoading(false)
-    }
-  }, [params.target_id, params.risk, params.status, params.rule_id, params.q, params.limit, params.offset])
-
-  useEffect(() => {
-    fetchFindings()
-  }, [fetchFindings])
-
-  return { findings, loading, error, refetch: fetchFindings }
+export function usePatchFindingStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) =>
+      api.patch(`findings/${id}`, { json: { status } }).json<Finding>(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["findings"] });
+    },
+  });
 }
 
 export async function patchFindingStatus(id: string, status: string): Promise<Finding> {
-  return api.patch(`findings/${id}`, { json: { status } }).json<Finding>()
+  return api.patch(`findings/${id}`, { json: { status } }).json<Finding>();
+}
+
+export async function getFinding(id: string): Promise<Finding> {
+  return api.get(`findings/${id}`).json<Finding>();
+}
+
+export async function listFindingRules(): Promise<string[]> {
+  const data = await api.get("findings/rules").json<{ rules: string[] }>();
+  return data.rules;
 }
