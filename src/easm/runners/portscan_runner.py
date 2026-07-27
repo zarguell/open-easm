@@ -4,6 +4,8 @@ import logging
 import re
 import uuid
 
+import asyncpg
+
 from easm.config import TargetConfig
 from easm.network_guard import resolve_and_validate
 from easm.runners.base import BaseRunner
@@ -36,8 +38,11 @@ class PortScanRunner(BaseRunner):
                     hostname = row["entity_value"]
                     if hostname not in existing:
                         targets.append(hostname)
-            except Exception:
-                logger.debug("failed to query hostnames for portscan", exc_info=True)
+            except (asyncpg.PostgresError, KeyError) as e:
+                logger.debug(
+                    "failed to query hostnames for portscan",
+                    exc_info=True, extra={"target_id": target.id, "error": str(e)},
+                )
 
         return targets
 

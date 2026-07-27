@@ -40,7 +40,7 @@ export function GraphControls({ depth, onDepthChange, onZoomIn, onZoomOut, onZoo
           min={1}
           max={10}
           value={depth}
-          onChange={(e) => onDepthChange(Number(e.target.value))}
+          onChange={(e) => { onDepthChange(Number(e.target.value)); }}
           className="w-20 h-1 rounded-full appearance-none cursor-pointer"
           style={{
             backgroundColor: colors.hairline,

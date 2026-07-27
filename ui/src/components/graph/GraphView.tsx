@@ -94,9 +94,9 @@ export function GraphView() {
               links={links}
               selectedNodeId={selectedNodeId}
               onNodeClick={(id) =>
-                setSelectedNodeId((prev) => (prev === id ? null : id))
+                { setSelectedNodeId((prev) => (prev === id ? null : id)); }
               }
-              onNodeDoubleClick={(id) => setDetailEntityId(id)}
+              onNodeDoubleClick={(id) => { setDetailEntityId(id); }}
             />
             <GraphLegend />
             <GraphControls
@@ -118,7 +118,7 @@ export function GraphView() {
 
       <SlideOver
         open={detailEntityId !== null}
-        onClose={() => setDetailEntityId(null)}
+        onClose={() => { setDetailEntityId(null); }}
         title="Entity Detail"
       >
         {detailEntityId && <EntityDetail entityId={detailEntityId} />}

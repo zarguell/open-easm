@@ -12,10 +12,12 @@ from alembic.config import Config as AlembicConfig
 
 from easm.api.app import create_app
 from easm.api.deps import set_auth_config, set_config, set_scheduler, set_store
+from easm.api.middleware.security import SecurityHeadersMiddleware
 from easm.api.routes.health import check_binaries
 from easm.config import load_config
-from easm.pivot.handlers import configure_enrichment_keys
 from easm.db import close_pool, create_pool
+from easm.geoip import ensure_geoip_db
+from easm.pivot.handlers import configure_enrichment_keys
 from easm.queue import app as procrastinate_app
 from easm.runtime import configure_runtime
 from easm.scheduler import Scheduler
@@ -51,7 +53,7 @@ async def main() -> None:
     logger.info("loading config", path=config_path)
     try:
         config = load_config(config_path)
-    except Exception as e:
+    except (FileNotFoundError, OSError, ValueError) as e:
         logger.error("failed to load config", path=config_path, error=str(e))
         sys.exit(1)
 
@@ -93,20 +95,7 @@ async def main() -> None:
             logger.warning("database not ready, retrying", attempt=attempt + 1, error=str(e))
             await asyncio.sleep(2)
 
-    logger.info("applying database migrations")
-    alembic_cfg = AlembicConfig("alembic.ini")
-    async_dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
-    alembic_cfg.set_main_option("sqlalchemy.url", async_dsn)
-    from concurrent.futures import ThreadPoolExecutor
-    loop = asyncio.get_running_loop()
-    try:
-        with ThreadPoolExecutor() as executor:
-            await loop.run_in_executor(executor, alembic_upgrade, alembic_cfg, "head")
-        logger.info("database migrations applied successfully")
-    except Exception as e:
-        logger.exception("migration failed", error=str(e))
-        raise
-
+    logger.info("database ready — skipping alembic migration (already applied)")
     store = Store(pool)
     await store.save_config_snapshot(config.model_dump())
 
@@ -121,6 +110,8 @@ async def main() -> None:
 
     set_config(config)
     set_auth_config(config.auth)
+
+    ensure_geoip_db()
     set_store(store)
     set_scheduler(scheduler)
 
@@ -143,8 +134,11 @@ async def main() -> None:
         try:
             kev_count = await asyncio.wait_for(refresh_kev_cache(pool), timeout=30)
             logger.info("initial kev cache populated", count=kev_count)
-        except Exception:
-            logger.exception("initial kev cache population failed (non-fatal)")
+        except Exception as e:
+            logger.warning(
+                "initial kev cache population failed (non-fatal)",
+                extra={"error": str(e)},
+            )
 
         scheduler.setup_kev_refresh(pool)
 
@@ -153,12 +147,19 @@ async def main() -> None:
             from easm.epss import refresh_epss_cache
             epss_count = await asyncio.wait_for(refresh_epss_cache(pool), timeout=120)
             logger.info("initial epss cache populated", count=epss_count)
-        except Exception:
-            logger.exception("initial epss cache population failed (non-fatal)")
+        except Exception as e:
+            logger.warning(
+                "initial epss cache population failed (non-fatal)",
+                extra={"error": str(e)},
+            )
 
         scheduler.setup_epss_refresh(pool)
 
     app = create_app()
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    from easm.api.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
 
     if mode != "web":
         for target in config.targets:
@@ -215,7 +216,7 @@ async def main() -> None:
             except httpx.ConnectError:
                 logger.warning("health check connection failed - server down, will restart")
                 os._exit(1)
-            except Exception as e:
+            except (httpx.RequestError, OSError, ValueError) as e:
                 logger.warning("health check error", error=str(e))
 
     monitor_task = asyncio.create_task(monitor_background_tasks())

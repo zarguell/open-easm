@@ -18,7 +18,7 @@ export interface GraphData {
   edges: Relationship[]
 }
 
-export function useGraph(targetId: string | null, depth: number = 3) {
+export function useGraph(targetId: string | null, depth = 3) {
   return useQuery({
     queryKey: ['graph', targetId, depth],
     queryFn: () =>

@@ -21,10 +21,6 @@ export const NewThisWeek: FC = () => {
     limit: 500,
   })
 
-  if (isError) {
-    return <ErrorDisplay message={error.message} onRetry={() => refetch()} />
-  }
-
   const entities = data?.pages.flatMap((p) => p.entities) ?? []
 
   const countsByType = useMemo(() => {
@@ -34,6 +30,10 @@ export const NewThisWeek: FC = () => {
     }
     return counts
   }, [entities])
+
+  if (isError) {
+    return <ErrorDisplay message={error.message} onRetry={() => refetch()} />
+  }
 
   const hasMore = data?.pages[data.pages.length - 1]?.next_cursor !== null
   const totalShown = entities.length
