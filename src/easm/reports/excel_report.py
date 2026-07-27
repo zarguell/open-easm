@@ -137,7 +137,7 @@ def _sheet_action_plan(wb, data: dict):
     _write_header(ws, "PRIORITIZED ACTION PLAN", headers)
 
     sla_policy = {"critical": 3, "high": 14, "medium": 30, "low": 60, "info": None}
-    for i, f in enumerate(findings[:50], start=4):
+    for i, f in enumerate(findings[:1000], start=4):
         sev = f.get("risk", "info")
         priority = {"critical": "P1", "high": "P2", "medium": "P3", "low": "P4", "info": "Info"}.get(sev, "Info")
         sla_days = sla_policy.get(sev)
@@ -163,7 +163,7 @@ def _sheet_findings(wb, data: dict):
     headers = ["Severity", "Rule", "Headline", "Description", "Status", "Confidence", "First Seen"]
     _write_header(ws, "ALL FINDINGS", headers)
 
-    for i, f in enumerate(findings[:200], start=4):
+    for i, f in enumerate(findings[:2000], start=4):
         evidence = f.get("evidence", {}) or {}
         loc = evidence.get("location", {}) or {}
         row = [
@@ -188,7 +188,7 @@ def _sheet_exposure(wb, data: dict):
     headers = ["Entity", "Type", "Risk", "Confidence", "First Seen", "Last Seen", "Sources"]
     _write_header(ws, "EXPOSED ASSET INVENTORY", headers)
 
-    for i, e in enumerate(entities[:500], start=4):
+    for i, e in enumerate(entities[:5000], start=4):
         sources = e.get("sources", [])
         row = [
             e.get("entity_value", ""),
@@ -214,8 +214,8 @@ def _sheet_certificates(wb, data: dict):
     headers = ["Subject CN", "Issuer", "Risk", "Deployment", "Expires", "SANs"]
     _write_header(ws, "CERTIFICATE INVENTORY", headers)
 
-    for i, c in enumerate(certs[:200], start=4):
-        san_str = ", ".join((c.get("san_dns_names") or [])[:5])
+    for i, c in enumerate(certs[:2000], start=4):
+        san_str = ", ".join((c.get("san_dns_names") or [])[:20])
         row = [
             c.get("subject_cn", ""),
             c.get("issuer_organization", ""),

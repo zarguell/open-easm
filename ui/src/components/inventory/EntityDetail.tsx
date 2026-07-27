@@ -138,7 +138,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
         <div className="flex items-center gap-2">
           <EntityTypeBadge entityType={entity.entity_type} />
           <button
-            onClick={() => setLineageOpen(true)}
+            onClick={() => { setLineageOpen(true); }}
             className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-mute hover:text-ink hover:border-hairline-soft transition-colors cursor-pointer"
           >
             <GitBranch className="h-3 w-3" />
@@ -204,7 +204,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
                   </span>
                   <span
                     className={`text-body font-mono truncate ${onNavigate ? 'cursor-pointer hover:text-ink underline decoration-dotted underline-offset-2' : ''}`}
-                    onClick={onNavigate ? () => onNavigate(relatedEntityId) : undefined}
+                    onClick={onNavigate ? () => { onNavigate(relatedEntityId); } : undefined}
                     role={onNavigate ? 'button' : undefined}
                     tabIndex={onNavigate ? 0 : undefined}
                     onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter') onNavigate(relatedEntityId) } : undefined}
@@ -227,7 +227,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
       {entity.attributes && Object.keys(entity.attributes).length > 0 && (
         <div className="space-y-2">
           <button
-            onClick={() => setAttributesOpen(!attributesOpen)}
+            onClick={() => { setAttributesOpen(!attributesOpen); }}
             className="flex items-center gap-1 text-xs font-semibold text-mute uppercase tracking-wider hover:text-ink transition-colors cursor-pointer"
           >
             {attributesOpen ? (
@@ -247,7 +247,7 @@ export const EntityDetail: FC<EntityDetailProps> = ({ entityId, onNavigate }) =>
 
       <SlideOver
         open={lineageOpen}
-        onClose={() => setLineageOpen(false)}
+        onClose={() => { setLineageOpen(false); }}
         title="Discovery Lineage"
       >
         <DiscoveryLineagePanel entityId={entityId} />

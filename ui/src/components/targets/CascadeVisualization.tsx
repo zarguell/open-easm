@@ -1,5 +1,6 @@
 import { type FC, useMemo } from 'react'
 import { useEntities } from '../../api/entities'
+import { useTarget } from '../../api/targets'
 import { CascadeStep } from '../shared/CascadeStep'
 import { ErrorDisplay } from '../shared/ErrorDisplay'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
@@ -10,6 +11,7 @@ interface CascadeVisualizationProps {
 }
 
 export const CascadeVisualization: FC<CascadeVisualizationProps> = ({ selectedTargetId }) => {
+  const { data: targetData } = useTarget(selectedTargetId)
   const { data: entitiesData, isLoading, isError, error, refetch } = useEntities({
     target_id: selectedTargetId ?? undefined,
     limit: 500,
@@ -26,6 +28,8 @@ export const CascadeVisualization: FC<CascadeVisualizationProps> = ({ selectedTa
     }
     return counts
   }, [entitiesData])
+
+  const pivots = targetData?.pivot?.allowed_pivots
 
   if (!selectedTargetId) {
     return (
@@ -44,15 +48,37 @@ export const CascadeVisualization: FC<CascadeVisualizationProps> = ({ selectedTa
   }
 
   return (
-    <div className="flex items-center gap-0 overflow-x-auto py-4">
-      {ENTITY_TYPES.map((entityType, idx) => (
-        <CascadeStep
-          key={entityType}
-          entityType={entityType}
-          count={countsByType[entityType] ?? null}
-          isLast={idx === ENTITY_TYPES.length - 1}
-        />
-      ))}
+    <div className="flex flex-col gap-3 py-4">
+      <div className="flex items-center gap-0 overflow-x-auto">
+        {ENTITY_TYPES.map((entityType, idx) => (
+          <CascadeStep
+            key={entityType}
+            entityType={entityType}
+            count={countsByType[entityType] ?? null}
+            isLast={idx === ENTITY_TYPES.length - 1}
+          />
+        ))}
+      </div>
+      {pivots && pivots.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-1">
+          {pivots.map(p => (
+            <span
+              key={`${p.from}→${p.to}→${p.via}`}
+              className="inline-flex items-center gap-1.5 font-mono text-[11px] text-primary px-2.5 py-1 rounded-md bg-primary/5 border border-primary/10"
+            >
+              <span className="text-mute lowercase">{p.from}</span>
+              <svg className="w-3 h-3 text-primary/40 shrink-0" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6h8M8 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="font-semibold">{p.via}</span>
+              <svg className="w-3 h-3 text-primary/40 shrink-0" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6h8M8 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="text-mute lowercase">{p.to}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

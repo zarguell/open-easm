@@ -17,6 +17,10 @@ collect:
       - ".*storage\\.googleapis\\.com"
       - ".*blob\\.core\\.windows\\.net"
       - ".*digitaloceanspaces\\.com"
+  - method: regex
+    field: attributes.public_access
+    patterns:
+      - "[Tt]rue"
 aggregation:
   field: entity_value
 headline: "Cloud storage endpoint found: {entity_value}"

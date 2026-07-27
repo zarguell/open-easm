@@ -10,11 +10,11 @@ collect:
     field: entity_type
     value: ip
   - method: regex
-    field: attributes.country_code
+    field: attributes.geo.country_code
     patterns:
       - ".+"
   - method: not_regex
-    field: attributes.country_code
+    field: attributes.geo.country_code
     patterns:
       - "^US$"
       - "^CA$"

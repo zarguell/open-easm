@@ -3,21 +3,13 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+from datetime import UTC, datetime
 
+import asyncpg
 from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
-
-_PIVOT_TASK = "easm.tasks.pivot.execute_pivot"
-_RUNNER_TASKS = ("easm.tasks.runner.execute_runner", "easm.tasks.janitor.execute_janitor")
-
-_STATUS_MAP = {
-    "todo": "pending",
-    "doing": "running",
-    "succeeded": "completed",
-    "failed": "failed",
-}
 
 
 def check_binaries() -> dict:
@@ -42,7 +34,11 @@ def check_binaries() -> dict:
                     [binary, "--version"], capture_output=True, text=True, timeout=5
                 )
                 version_str = version.stdout.strip() or version.stderr.strip() or None
-            except Exception:
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+                logger.debug(
+                    "binary version probe failed",
+                    extra={"binary": binary, "error": str(e)},
+                )
                 version_str = None
             results[binary] = {"path": path, "version": version_str, "ok": True}
         else:
@@ -53,7 +49,6 @@ def check_binaries() -> dict:
 @router.get("/healthz")
 async def healthz():
     from easm.api.deps import get_store, get_scheduler
-    from easm.runtime import get_runtime
 
     store = None
     scheduler = None
@@ -61,43 +56,28 @@ async def healthz():
         store = get_store()
         scheduler = get_scheduler()
     except RuntimeError:
-        pass
+        logger.debug("store/scheduler not yet initialized at health check")
 
     db_ok = False
-    pivot_queue = {}
     if store:
         try:
             await store.pool.fetchval("SELECT 1")
             db_ok = True
-            rows = await store.pool.fetch(
-                "SELECT status, COUNT(*) as count FROM procrastinate_jobs "
-                "WHERE task_name = $1 GROUP BY status",
-                _PIVOT_TASK,
+        except (asyncpg.PostgresError, OSError) as e:
+            logger.warning(
+                "health check database probe failed",
+                exc_info=True, extra={"error": str(e)},
             )
-            for row in rows:
-                mapped = _STATUS_MAP.get(row["status"], row["status"])
-                pivot_queue[mapped] = row["count"]
-            for old_status in ("pending", "running", "completed", "failed", "skipped_covered"):
-                pivot_queue.setdefault(old_status, 0)
-        except Exception:
             db_ok = False
 
-    sched_ok = scheduler.running if scheduler and hasattr(scheduler, "running") else False
-    binaries = check_binaries()
-    all_ok = db_ok and sched_ok and all(b["ok"] for b in binaries.values())
+    scheduler_ok = (
+        scheduler.running if scheduler and hasattr(scheduler, "running") else False
+    )
 
     return {
-        "status": "ok" if all_ok else "degraded",
-        "database": "connected" if db_ok else "disconnected",
-        "scheduler": "running" if sched_ok else "stopped",
-        "config_loaded": True,
-        "runtime": {
-            "mode": get_runtime().config.mode,
-            "fixtures_path": get_runtime().config.fixtures_path,
-            "allow_external_network": get_runtime().config.allow_external_network,
-            "allow_subprocess": get_runtime().config.allow_subprocess,
-            "allow_active_scanning": get_runtime().config.allow_active_scanning,
-        },
-        "pivot_queue": pivot_queue,
-        "binaries": binaries,
+        "status": "ok",
+        "version": "0.1.0",
+        "database": "connected" if db_ok else "error",
+        "scheduler": "running" if scheduler_ok else "stopped",
+        "timestamp": datetime.now(UTC).isoformat(),
     }
