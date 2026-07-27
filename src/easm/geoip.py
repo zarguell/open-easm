@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
+import urllib.request
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "GeoLite2-City.mmdb"
+_GEOIP_DB_URL = "https://github.com/zarguell/TA-geoip/raw/refs/heads/master/bin/GeoLite2-City.mmdb"
+_MAX_AGE_DAYS = 30
 
 
 @dataclass
@@ -32,20 +38,60 @@ class GeoIpResult:
         }
 
 
+def download_geoip_db(url: str = _GEOIP_DB_URL, dest: Path | None = None) -> Path | None:
+    """Download GeoLite2 City database. Returns path on success, None on failure."""
+    if dest is None:
+        dest = _DEFAULT_DB_PATH
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        logger.info("downloading GeoLite2 database from %s", url)
+        with urllib.request.urlopen(url, timeout=120) as resp:
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                shutil.copyfileobj(resp, tmp)
+                tmp_path = Path(tmp.name)
+
+        shutil.move(str(tmp_path), str(dest))
+        dest.chmod(0o644)
+        logger.info("GeoLite2 database downloaded to %s (%d bytes)", dest, dest.stat().st_size)
+        return dest
+    except (urllib.error.URLError, OSError, shutil.Error) as e:
+        logger.warning(
+            "failed to download GeoLite2 database from %s",
+            url, exc_info=True, extra={"error": str(e)},
+        )
+        return None
+
+
+def geoip_db_needs_refresh(path: Path, max_age_days: int = _MAX_AGE_DAYS) -> bool:
+    """Check if the GeoLite2 database is missing or older than max_age_days."""
+    if not path.exists():
+        return True
+    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    return age > timedelta(days=max_age_days)
+
+
 class GeoIpLookup:
-    def __init__(self, reader: Any = None, db_path: str | Path | None = None):
+    def __init__(self, reader: Any = None, db_path: str | Path | None = None, auto_download: bool = True):
         self._reader = reader
         self._owns_reader = False
         if reader is None:
             path = Path(db_path) if db_path else _DEFAULT_DB_PATH
+
+            if not path.exists() and auto_download:
+                download_geoip_db(dest=path)
+
             if path.exists():
                 try:
                     import maxminddb
 
                     self._reader = maxminddb.Reader(str(path))
                     self._owns_reader = True
-                except Exception:
-                    logger.warning("Failed to open GeoLite2 database at %s", path)
+                except (OSError, ValueError) as e:
+                    logger.warning(
+                        "Failed to open GeoLite2 database at %s",
+                        path, extra={"error": str(e)},
+                    )
             else:
                 logger.info("GeoLite2 database not found at %s, geo-IP lookups disabled", path)
 
@@ -54,7 +100,8 @@ class GeoIpLookup:
             return None
         try:
             result = self._reader.get(ip)
-        except Exception:
+        except (KeyError, ValueError, TypeError) as e:
+            logger.debug("GeoIP lookup failed for %s", ip, extra={"error": str(e)})
             return None
         if result is None:
             return None
@@ -86,3 +133,10 @@ class GeoIpLookup:
     def close(self):
         if self._owns_reader and self._reader:
             self._reader.close()
+
+
+def ensure_geoip_db(max_age_days: int = _MAX_AGE_DAYS, url: str = _GEOIP_DB_URL) -> Path | None:
+    """Ensure the GeoLite2 database exists and is fresh. Call at startup."""
+    if geoip_db_needs_refresh(_DEFAULT_DB_PATH, max_age_days):
+        return download_geoip_db(url=url, dest=_DEFAULT_DB_PATH)
+    return _DEFAULT_DB_PATH if _DEFAULT_DB_PATH.exists() else None

@@ -18,6 +18,14 @@ class LocalAuthConfig(BaseModel):
     cookie_name: str = "easm_session"
     cookie_secure: bool = True
 
+    @model_validator(mode="after")
+    def validate_secret(self) -> LocalAuthConfig:
+        if len(self.session_secret) < 32:
+            raise ValueError(
+                "auth.local.session_secret must be at least 32 characters"
+            )
+        return self
+
 
 class SSOProviderConfig(BaseModel):
     provider: Literal["google", "github", "microsoft", "okta"]

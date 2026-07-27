@@ -14,7 +14,7 @@ export function LoginPage() {
     setError("");
     try {
       await login(username, password);
-      navigate("/ui");
+      navigate("/");
     } catch {
       setError("Invalid username or password");
     }
@@ -35,7 +35,7 @@ export function LoginPage() {
           <input
             type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => { setUsername(e.target.value); }}
             placeholder="Enter your username"
             className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
@@ -47,7 +47,7 @@ export function LoginPage() {
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); }}
             placeholder="Enter your password"
             className="w-full px-3 py-2.5 border border-hairline-soft rounded-md bg-canvas-soft text-ink placeholder:text-mute/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-ring-focus"
             required
@@ -61,7 +61,7 @@ export function LoginPage() {
         </button>
         <p className="text-center text-sm text-mute">
           No account?{" "}
-          <Link to="/ui/register" className="text-primary hover:text-primary-soft underline transition-colors">
+          <Link to="/register" className="text-primary hover:text-primary-soft underline transition-colors">
             Register
           </Link>
         </p>

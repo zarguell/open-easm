@@ -11,12 +11,12 @@ export function AppShell() {
     <div className="flex h-screen overflow-hidden bg-canvas">
       <Sidebar
         expanded={sidebarExpanded}
-        onToggle={() => setSidebarExpanded((prev) => !prev)}
+        onToggle={() => { setSidebarExpanded((prev) => !prev); }}
         mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
+        onMobileClose={() => { setMobileOpen(false); }}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMobileMenuToggle={() => setMobileOpen((prev) => !prev)} />
+        <TopBar onMobileMenuToggle={() => { setMobileOpen((prev) => !prev); }} />
         <main className="flex-1 overflow-auto p-6">
           <Outlet />
         </main>

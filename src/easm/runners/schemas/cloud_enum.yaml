@@ -1,0 +1,14 @@
+# Schema: cloud_enum → domain entities for discovered buckets
+source: cloud_enum
+entities:
+  - type: domain
+    value_from: bucket_url
+    normalize: false
+    attributes:
+      source: cloud_enum
+      cloud_provider: "$raw.provider"
+      bucket_name: "$raw.bucket_name"
+      public_access: "$raw.public_access"
+      public_list: "$raw.public_list"
+      status_code: "$raw.status_code"
+relations: []

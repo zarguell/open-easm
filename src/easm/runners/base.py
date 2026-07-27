@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any
 
+import asyncpg
 import httpx
 
 from easm.models import RunStatus
@@ -129,8 +130,11 @@ class BaseRunner(ABC):
                     "UPDATE runs SET new_entity_count = $1, total_entity_count = $2 WHERE id = $3",
                     new_count or 0, total_count or 0, run_id,
                 )
-        except Exception:
-            logger.exception("failed to compute run counters", extra={"run_id": str(run_id)})
+        except (asyncpg.PostgresError, ValueError, KeyError) as e:
+            logger.exception(
+                "failed to compute run counters",
+                extra={"run_id": str(run_id), "error": str(e)},
+            )
 
         logger.info(
             "run finished",

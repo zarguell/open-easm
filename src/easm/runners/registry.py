@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+
+import httpx
 
 from easm.runners.engine import (
     get_runner_config,
@@ -11,6 +15,8 @@ from easm.runners.engine import (
     standard_subprocess_run,
 )
 from easm.runners.schemas import OUTPUT_SCHEMAS
+
+logger = logging.getLogger(__name__)
 
 # Type alias for the run function contract.
 # async def run_fn(target, store, trigger_type, run_id, log, http_client) -> (int, int, int)
@@ -186,7 +192,6 @@ async def _crtsh_run(target, store, trigger_type, run_id, log, http_client):
 
 
 async def _certspotter_run(target, store, trigger_type, run_id, log, http_client):
-    import base64
     import os
 
     api_key = os.environ.get("CERTSPOTTER_API_KEY", "")
@@ -281,8 +286,11 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
                         try:
                             parsed = _parse_cert_der(cert_der_b64)
                             raw.update(parsed)
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError, base64.binascii.Error) as e:
+                            logger.debug(
+                                "failed to parse cert DER for issuance",
+                                exc_info=True, extra={"error": str(e)},
+                            )
 
                     raw_event_id = await store.insert_raw_event(
                         target.org_id, target.id, "certspotter", raw, run_id
@@ -302,7 +310,7 @@ async def _certspotter_run(target, store, trigger_type, run_id, log, http_client
                     else:
                         deduped += 1
                 after = issuances[-1].get("id")
-        except Exception as e:
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as e:
             log(f"certspotter error for {domain}: {e}")
 
     return inserted, deduped, errors
@@ -336,7 +344,7 @@ def _parse_cert_der(cert_der_b64: str) -> dict[str, Any]:
         san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
         san_names = san_ext.value.get_values_for_type(x509.DNSName)
     except x509.ExtensionNotFound:
-        pass
+        logger.debug("certificate has no SubjectAlternativeName extension")
 
     pub = cert.public_key()
     pub_info = {"algorithm": type(pub).__name__.replace("_", " ").replace("RSAPublicKey", "RSA")}
@@ -379,8 +387,12 @@ async def _commoncrawl_run(target, store, trigger_type, run_id, log, http_client
             data = resp.json()
             if data and len(data) > 0:
                 cc_idx = data[0]["id"].replace("CC-MAIN-", "")
-    except Exception:
+    except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as e:
         log("commoncrawl: failed to fetch latest index, using fallback")
+        logger.debug(
+            "commoncrawl index fetch failed",
+            exc_info=True, extra={"error": str(e)},
+        )
 
     def _cc_iterate(t):
         urls: list[str] = []

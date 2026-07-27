@@ -3,7 +3,7 @@ FROM node:24-slim AS ui-builder
 
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json* ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 COPY ui/ .
 RUN npm run build
 
@@ -34,6 +34,8 @@ RUN useradd --create-home --shell /bin/bash easm && \
 USER easm
 EXPOSE 8000
 ENV EASM_MODE=web
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8000/api/healthz || exit 1
 CMD ["python", "-m", "easm.main"]
 
 # ── Stage 4: Worker (full tools) ──
@@ -104,4 +106,6 @@ FROM worker AS all-in-one
 
 ENV EASM_MODE=all
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8000/api/healthz || exit 1
 CMD ["python", "-m", "easm.main"]

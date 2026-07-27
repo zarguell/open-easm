@@ -1,0 +1,10 @@
+# Schema: wappalyzer → hostname entities with technology data
+source: wappalyzer
+entities:
+  - type: hostname
+    value_from: hostname
+    normalize: true
+    attributes:
+      source: wappalyzer
+      technologies: "$raw.technologies"
+relations: []

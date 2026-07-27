@@ -23,6 +23,7 @@ class TargetSummary(BaseModel):
 
 class TargetDetail(TargetSummary):
     match_rules: dict[str, Any]
+    pivot: dict[str, Any] | None = None
 
 
 class EventSummary(BaseModel):

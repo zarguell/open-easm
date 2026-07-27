@@ -4,7 +4,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from easm.api.deps import get_store
+from easm.api.deps import current_org_id, get_store
+from easm.api.pagination import PaginatedResponse
 from easm.assets.lifecycle import compute_lifecycle_state
 from easm.store import Store
 
@@ -80,11 +81,12 @@ async def list_entities(
     q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=5000),
     cursor: str | None = Query(None),
+    org_id_: str = Depends(lambda r: current_org_id(r)),
     store: Store = Depends(get_store),
 ):
-    conditions: list[str] = []
-    sql_params: list[object] = []
-    idx = 0
+    conditions: list[str] = ["org_id = $1"]
+    sql_params: list[object] = [org_id_]
+    idx = 1
 
     if target_id:
         idx += 1
@@ -158,7 +160,11 @@ async def list_entities(
         })
 
     next_cursor = str(results[-1]["id"]) if has_more and results else None
-    return {"entities": entities_list, "next_cursor": next_cursor, "total_count": total_count}
+    return PaginatedResponse(
+        items=entities_list,
+        total=total_count,
+        next_cursor=next_cursor,
+    )
 
 
 @router.get("/entities/{entity_id}")
