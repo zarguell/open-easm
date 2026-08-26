@@ -21,7 +21,7 @@
     "d3-zoom": "^3.0.0",
     "ky": "^2.0.0",
     "lucide-react": "^1.16.0",
-    "maplibre-gl": "^5.24.0",
+    "maplibre-gl": "^6.0.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router": "^8.3.0"
