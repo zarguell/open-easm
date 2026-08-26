@@ -52,5 +52,10 @@
     "typescript-eslint": "^8.65.0",
     "vite": "^8.0.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "eslint-plugin-jsx-a11y": {
+      "eslint": "$eslint"
+    }
   }
 }
