@@ -37,7 +37,7 @@
     "@types/d3-scale": "^4.0.0",
     "@types/d3-selection": "^3.0.0",
     "@types/d3-zoom": "^3.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
