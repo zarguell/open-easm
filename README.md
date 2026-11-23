@@ -97,6 +97,35 @@ open http://localhost:8000/ui
 
 The API is available at `http://localhost:8000/api` with interactive docs at `http://localhost:8000/docs`.
 
+### Upgrading to PostgreSQL 19
+
+The compose stacks pin `postgres:19-alpine`. PostgreSQL 19 will not open a data
+directory created by an older major version — its entrypoint refuses to start and
+prints `there appears to be PostgreSQL data in: /var/lib/postgresql/18/docker`.
+Pick one of:
+
+- **Disposable dev data:** `docker compose down -v && docker compose up -d`.
+  The volume is recreated and the schema is rebuilt by Alembic on first start.
+- **Data you want to keep:** dump from the old server with the *new* client, then
+  restore into a fresh volume. Substitute your `POSTGRES_USER`/`POSTGRES_DB` if
+  you changed them from the `easm` defaults.
+
+```bash
+# 1. With the old (18) postgres container running, dump through it
+#    (--network container:... shares its network namespace)
+docker run --rm --network container:"$(docker compose ps -q postgres)" \
+  postgres:19-alpine \
+  pg_dump -h 127.0.0.1 -U easm -d easm -Fc > easm18.dump
+
+# 2. Recreate the volume on 19 and restore into it
+docker compose down -v && docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U easm -d easm --no-owner < easm18.dump
+```
+
+`pg_upgrade` also works (the single mount at `/var/lib/postgresql` exists so a
+`--link` upgrade crosses no mount boundary), but dump/restore is the simplest
+path for a single-database install.
+
 ## Configuration
 
 Targets are defined in `config.yaml`. Each target specifies what to discover and how:
@@ -196,7 +225,7 @@ See `config.yaml.example` for the full reference with all 18 runners and 18 pivo
 └──────────────────────┼───────────────────────────────┘
                        │
               ┌────────┴────────┐
-              │   PostgreSQL 18  │
+              │   PostgreSQL 19  │
               └─────────────────┘
 ```
 
@@ -327,7 +356,7 @@ Interactive docs available at `http://localhost:8000/docs`.
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
 | Graph | D3-force |
 | Geo Map | MapLibre GL |
-| Database | PostgreSQL 18 |
+| Database | PostgreSQL 19 |
 | Discovery Tools | subfinder, asnmap, dnstwist, nuclei, nmap, wappalyzer, gitleaks |
 | Enrichment | Shodan, AbuseIPDB, GreyNoise, Censys, SecurityTrails, URLScan, MaxMind GeoLite2 |
 | Deploy | Docker multi-stage build (React SPA + Python backend in one container) |

@@ -1,6 +1,6 @@
 services:
   postgres-test:
-    image: postgres:18-alpine
+    image: postgres:19-alpine
     environment:
       POSTGRES_DB: easm
       POSTGRES_USER: easm
