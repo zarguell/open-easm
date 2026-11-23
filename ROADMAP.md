@@ -4,7 +4,7 @@
 
 **What's working:** Passive discovery pipeline (asnmap, certstream, subfinder, crt.sh, reverse DNS, forward DNS, domain extraction), automated pivot chaining (ASN → IP ranges → hostnames → domains → certificates), D3-force graph explorer, entity inventory with filters, run tracking, pivot queue, per-target YAML configuration, Docker single-binary deployment, enrichment pipeline (DNS mail records, mail provider classification, TLS cert grab, RDAP domain enrichment, geo-IP, Shodan InternetDB, DNSTwist lookalikes).
 
-**Tech stack:** Python 3.14 / FastAPI / asyncpg / APScheduler, React 18 / TypeScript / Vite / Tailwind CSS 4, PostgreSQL 18, D3-force.
+**Tech stack:** Python 3.14 / FastAPI / asyncpg / APScheduler, React 18 / TypeScript / Vite / Tailwind CSS 4, PostgreSQL 19, D3-force.
 
 **Reference architecture:** [SpiderFoot](https://github.com/smicallef/spiderfoot) — 231-module OSINT engine with event-driven pub/sub architecture and YAML correlation rules. Our pivot handler + parser pattern mirrors their module system; their correlation engine and enrichment integrations are direct reference implementations we can adapt.
 
